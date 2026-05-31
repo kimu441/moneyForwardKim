@@ -1,36 +1,53 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 🛡️ 資産形成ダッシュボード プロ (Ver3.1) — README
 
-## Getting Started
+本アプリケーションは、単なる「記録するだけの家計簿」ではありません。**「週次15,000円の予算管理」**と**「25日給料日サイクル」**を組み合わせることで、強制的に手元にお金を残し、効率的な資産形成をサポートするための「攻めの家計管理ツール」です。
 
-First, run the development server:
+---
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+## 🧭 設計思想とコアサイクル
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+本アプリは、以下の**2つの独立したサイクル**を回すことで、誰でも直感的に貯蓄ができるよう設計されています。
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### 1. 週次予算サイクル（短期の「守り」）
+* 毎週、自由に使えるお金を**一律 15,000円**と設定します。
+* 週末に画面の「週の締め処理」を行うことで、その時点で財布に残っていた残金がそのまま**「累計貯蓄」**へと移動し、来週の予算（15,000円）が再チャージされます。
+* 残金をゲーム感覚で残すことで、日々の無駄遣いに自然とブレーキをかけます。
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### 2. 25日給料日サイクル（長期の「攻め」）
+* 一般的な給料日である**毎月25日〜翌月24日**を「1ヶ月度」として自動管理します。
+* 毎月25日になった最初の起動時に、固定費（家賃やサブスクなど）が自動的に支出として一括計上されます。
+* 月の終わりに、手元に残せた「貯蓄額」と使った「支出総額」を並べて比較し、家計の健全性を評価します。
 
-## Learn More
+---
 
-To learn more about Next.js, take a look at the following resources:
+## 🛠️ 機能一覧
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### 🏠 ホーム画面（日々の運用）
+* **リアルタイム残高・目標バー:** 今週あといくら使えるかと、長期目標に対する現在の貯蓄達成率をプログレスバーで視覚化。
+* **手動支出登録:** 金額と「10大ジャンル」を選択して、ワンタップでクイックに入力可能。
+* **PayPay明細CSVインポート:** PayPayアプリから出力したCSVファイルを読み込むだけで、今週の支出を一括反映（重複読み込み防止機能付き）。
+* **2連月次収支グラフ:** 25日サイクルごとの「支出総額」と「貯蓄額」を2本並べて表示。お金が残った理由、使いすぎた理由をひと目で分析。
+* **スマート日割りアラート:** 直近の日曜日（週の締め）までの残り日数を算出し、「1日あたり残りいくら使えるか」のピンチ度を3段階（安全・注意・危険）でリアルタイムに警告。
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### 📊 詳細分析画面（振り返り）
+* **家計貯蓄率スコア:** 「今月の想定収入（固定費合計＋週次予算）に対して、何％を貯蓄に回せたか」を自動算出し、スコアに応じてアドバイスを提供（目安：貯蓄率20%以上で優良、40%以上でエリート）。
+* **先月比・カテゴリ別比較グラフ:** 10大ジャンルごとに、基準となる支出（先月目安）と今月の実績値を棒グラフで比較。
+* **支出ポートフォリオ:** 今月の総支出に占める各ジャンルの割合を円グラフとパーセンテージで可視化。ジャンルごとに色を固定しているため、直感的に推移を把握可能。
 
-## Deploy on Vercel
+### ⚙️ 各種設定画面（カスタマイズ）
+* **長期貯蓄目標設定:** 最終的に貯めたい目標金額（例: 200,000円）をいつでも変更可能。
+* **固定費自動登録マネージャー:** 家賃、通信費、保険、サブスクなど、毎月25日に自動で引き落とされる固定費の名称・金額・カテゴリを自由に登録・管理。
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+---
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## 🏷️ 拡張された10大ジャンル（カテゴリ）
+アプリ内で管理されるジャンルは以下の10個です。手動入力に加え、PayPay CSVインポート時にも以下のキーワードから自動で振り分けられます。
+
+| ジャンル名 | 想定される支出例 | 自動判定キーワード（初期値） |
+| :--- | :--- | :--- |
+| **食費** | 食料品、外食、コンビニ | セブン、ファミマ |
+| **日用品** | 消耗品、ドラッグストア、雑貨 | 薬 |
+| **交通費** | 電車、バス、タクシー、チャージ | 駅 |
+| **旅行費** | 旅費、宿泊、航空券 | ホテル、航空 |
+| **株** | 投資信託、資産運用、つみたてNISA | ＳＢＩ、楽天証券 |
+| **美容・衣服**|
