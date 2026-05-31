@@ -3,6 +3,7 @@ export type Category = '食費' | '日用品' | '交通費' | '旅行費' | '株
 export type Expense = { id: string; date: string; amount: number; name: string; category: Category };
 export type CategoryRule = { keyword: string; category: Category };
 
+// ルール配列を外部から受け取って判定するように修正
 export const categorize = (name: string, rules: CategoryRule[]): Category => {
   const rule = rules.find(r => name.includes(r.keyword));
   return rule ? rule.category : 'その他';
@@ -43,7 +44,7 @@ export const parsePayPayCSV = (csvText: string, alreadyProcessedIds: string[], r
             date: dateStr, 
             amount: expense, 
             name, 
-            category: categorize(name, rules) 
+            category: categorize(name, rules) // 動的ルールを適用
         });
       }
     }
