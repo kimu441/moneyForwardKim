@@ -428,6 +428,15 @@ export function useDashboard() {
     setFixedCosts(c); saveFixedCosts(c);
   };
 
+  // ---- 変動費のカテゴリをインラインで変更 ----
+const updateHistoryCategory = (id: string, newCategory: Category) => {
+  const newHistory = history.map(h =>
+    h.id === id ? { ...h, category: newCategory } : h
+  );
+  setHistory(newHistory);
+  persistHistory(newHistory);
+};
+
   const mineFixedCostsFromHistory = (all: HistoryItem[]) => {
     const groups: Record<string, string[]> = {};
     all.filter(h => !h.id.startsWith('rakuten-monthly-')).forEach(h => {
@@ -546,6 +555,7 @@ ${sortedVariableHistory.slice(0, 20).map(h => `- ${h.date} | ${h.name} | ¥${h.a
       deleteHistory, handleFileUpload, handleRakutenUpload,
       executeWeeklyClose, addFixedCost, removeFixedCost,
       addRakutenFixedCost, removeRakutenFixedCost, acceptAsFixedCost,
+      updateHistoryCategory,
     },
   };
 }
