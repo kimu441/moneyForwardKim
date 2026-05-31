@@ -1,6 +1,11 @@
 'use client';
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { parsePayPayCSV, HistoryItem, Category } from '@/lib/csvParser';
+import {
+  loadAll, saveHistory, saveBalance, saveTotalSavings,
+  saveTargetSavings, saveSalaryDay, saveFixedCosts, saveLastWeekReset,
+  getStorageUsageKB,
+} from '@/lib/localStorage';
 
 export interface FixedCostItem {
   id: string;
@@ -22,53 +27,90 @@ export interface MonthlyReport {
   saved: number;
 }
 
-export function useDashboard() {
-  const CATEGORIES: Category[] = ['食費', '日用品', '交通費', '旅行費', '株', '美容・衣服', '交際費', '趣味・娯楽', '不明', 'その他'];
+const DEFAULT_FIXED_COSTS: FixedCostItem[] = [
+  { id: 'f-1', name: '家賃・住宅', amount: 65000 },
+  { id: 'f-2', name: '通信費・サブスク', amount: 9800 },
+];
 
-  // 状態管理 (State)
+const WEEKLY_BUDGET = 30000;
+
+export function useDashboard() {
+  const CATEGORIES: Category[] = [
+    '食費', '日用品', '交通費', '旅行費', '株',
+    '美容・衣服', '交際費', '趣味・娯楽', '不明', 'その他'
+  ];
+
+  // ---- State ----
   const [isMounted, setIsMounted] = useState(false);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'analytics' | 'settings'>('dashboard');
   const [graphType, setGraphType] = useState<'week' | 'monthly'>('week');
   const [openSettingSection, setOpenSettingSection] = useState<'mining' | 'target' | 'fixed' | null>(null);
   const [showPromptModal, setShowPromptModal] = useState(false);
+  const [storageUsageKB, setStorageUsageKB] = useState(0);
 
   const [history, setHistory] = useState<HistoryItem[]>([]);
-  const [balance, setBalance] = useState<number>(30000); // 今週の残金初期値
-  const [targetSavings, setTargetSavings] = useState<number>(2000000); // 長期貯蓄目標
-  const [salaryDay, setSalaryDay] = useState<number>(25); // 給料日起点日
-  const [fixedCosts, setFixedCosts] = useState<FixedCostItem[]>([
-    { id: 'f-1', name: '家賃・住宅', amount: 65000 },
-    { id: 'f-2', name: '通信費・サブスク', amount: 9800 },
-  ]);
+  const [archivedReports, setArchivedReports] = useState<MonthlyReport[]>([]);
+  const [balance, setBalance] = useState<number>(WEEKLY_BUDGET);
+  const [totalSavings, setTotalSavings] = useState<number>(0); // 累計貯蓄額
+  const [targetSavings, setTargetSavings] = useState<number>(2000000);
+  const [salaryDay, setSalaryDay] = useState<number>(25);
+  const [fixedCosts, setFixedCosts] = useState<FixedCostItem[]>(DEFAULT_FIXED_COSTS);
 
-  // 手動入力フォーム用
   const [amount, setAmount] = useState<string>('');
   const [category, setCategory] = useState<Category>('食費');
-
-  // 設定フォーム用
   const [newFixedName, setNewFixedName] = useState('');
   const [newFixedAmount, setNewFixedAmount] = useState('');
-
-  // AI通知用・自動マイニング結果
   const [minedCandidates, setMinedCandidates] = useState<MinedCandidate[]>([]);
 
-  // クライアントサイドでのマウント完了通知 (ハイドレーション対策)
+  // ---- 初期化: LocalStorageから復元 ----
   useEffect(() => {
+    const saved = loadAll();
+    if (saved) {
+      setHistory(saved.history);
+      setArchivedReports(saved.archives);
+      // balanceが0の場合もきちんと復元（NaN対策）
+      setBalance(isNaN(saved.balance) ? WEEKLY_BUDGET : saved.balance);
+      setTotalSavings(isNaN(saved.totalSavings) ? 0 : saved.totalSavings);
+      setTargetSavings(isNaN(saved.targetSavings) ? 2000000 : saved.targetSavings);
+      setSalaryDay(isNaN(saved.salaryDay) ? 25 : saved.salaryDay);
+      if (saved.fixedCosts) setFixedCosts(saved.fixedCosts);
+
+      // 週次自動リセットチェック
+      checkWeeklyAutoReset(saved.lastWeekReset, isNaN(saved.balance) ? WEEKLY_BUDGET : saved.balance);
+    }
+    setStorageUsageKB(getStorageUsageKB());
     setIsMounted(true);
-    // ローカルストレージからの復元処理をここに入れることも可能です
   }, []);
 
-  // 給料日起点の現在のサイクル情報を計算
+  // 週次自動リセット: 前回リセット日が今週の月曜より前なら自動リセット
+  const checkWeeklyAutoReset = (lastReset: string | null, currentBalance: number) => {
+    const now = new Date();
+    // 今週の月曜日を計算
+    const dayOfWeek = now.getDay(); // 0=日, 1=月...
+    const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+    const thisMonday = new Date(now);
+    thisMonday.setDate(now.getDate() + diffToMonday);
+    thisMonday.setHours(0, 0, 0, 0);
+
+    if (!lastReset || new Date(lastReset) < thisMonday) {
+      // 今週まだリセットしていない → 残金を0として新しい週の予算をセット
+      // ※ 残金は0にせず「繰り越し」扱いにする（オプション: ここでは単純リセット）
+      setBalance(WEEKLY_BUDGET);
+      const resetDate = now.toISOString();
+      saveLastWeekReset(resetDate);
+      saveBalance(WEEKLY_BUDGET);
+      console.log('📅 週次予算を自動リセットしました');
+    }
+  };
+
+  // ---- 給料日サイクル計算 ----
   const currentCycle = useMemo(() => {
     const now = new Date();
     const year = now.getFullYear();
     const month = now.getMonth();
-    
-    // 今月の給料日
     const currentSalaryDate = new Date(year, month, salaryDay);
     let start: Date;
     let label: string;
-
     if (now >= currentSalaryDate) {
       start = currentSalaryDate;
       label = `${year}/${String(month + 1).padStart(2, '0')}期`;
@@ -76,216 +118,240 @@ export function useDashboard() {
       start = new Date(year, month - 1, salaryDay);
       label = `${year}/${String(month).padStart(2, '0')}期`;
     }
-
     return { start, label };
   }, [salaryDay]);
 
-  // ダミーの月次レポートデータ (Analytics用)
+  // ---- 月次レポート（実データ + アーカイブ）----
   const monthlyReports: MonthlyReport[] = useMemo(() => {
-    return [
-      { month: '2026/03期', spent: 145000, saved: 45000 },
-      { month: '2026/04期', spent: 132000, saved: 58000 },
-      { month: currentCycle.label, spent: history.reduce((sum, h) => sum + h.amount, 0), saved: 35000 },
-    ];
-  }, [history, currentCycle.label]);
+    // 現在サイクルの支出を実データから計算
+    const cycleStart = currentCycle.start;
+    const currentSpent = history
+      .filter(h => new Date(h.date.replace(/\//g, '-')) >= cycleStart)
+      .reduce((sum, h) => sum + h.amount, 0);
 
-  // 🛠️ アクション・処理 (Actions)
+    const currentReport: MonthlyReport = {
+      month: currentCycle.label,
+      spent: currentSpent,
+      saved: totalSavings, // 今期の累計貯蓄
+    };
 
-  // 手動での支出登録
+    // アーカイブ（圧縮済み過去月）+ 現在月を結合し、直近6ヶ月だけ表示
+    const allReports = [...archivedReports, currentReport];
+    return allReports.slice(-6); // 直近6ヶ月
+  }, [history, archivedReports, currentCycle, totalSavings]);
+
+  // ---- 保存ヘルパー（useCallbackでメモ化）----
+  const persistHistory = useCallback((newHistory: HistoryItem[]) => {
+    const { activeHistory, archives } = saveHistory(newHistory, archivedReports);
+    if (activeHistory.length !== newHistory.length) {
+      setHistory(activeHistory);
+      setArchivedReports(archives);
+    }
+    setStorageUsageKB(getStorageUsageKB());
+  }, [archivedReports]);
+
+  // ---- アクション ----
+
   const handleSpend = () => {
     const parsedAmount = parseInt(amount, 10);
     if (isNaN(parsedAmount) || parsedAmount <= 0) return;
-
     const now = new Date();
     const newLog: HistoryItem = {
       id: `manual-${Date.now()}`,
       date: `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, '0')}/${String(now.getDate()).padStart(2, '0')}`,
       name: '手動入力支出',
       amount: parsedAmount,
-      category: category,
+      category,
     };
-
-    setHistory(prev => [newLog, ...prev]);
-    setBalance(prev => prev - parsedAmount);
+    const newHistory = [newLog, ...history];
+    const newBalance = balance - parsedAmount;
+    setHistory(newHistory);
+    setBalance(newBalance);
     setAmount('');
+    persistHistory(newHistory);
+    saveBalance(newBalance);
   };
 
-  // 履歴の削除
   const deleteHistory = (id: string) => {
     const item = history.find(h => h.id === id);
     if (!item) return;
-    setHistory(prev => prev.filter(h => h.id !== id));
-    setBalance(prev => prev + item.amount);
+    const newHistory = history.filter(h => h.id !== id);
+    const newBalance = balance + item.amount;
+    setHistory(newHistory);
+    setBalance(newBalance);
+    persistHistory(newHistory);
+    saveBalance(newBalance);
   };
-  
-  // PayPay CSVのアップロード処理
-  // PayPay CSVのアップロード処理（重複排除ロジック入り）
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
     try {
       const parsedItems = await parsePayPayCSV(file);
       if (parsedItems.length === 0) {
         alert('支払いデータが見つからないか、形式が異なります。');
         return;
       }
-
-      // ★ここが修正ポイント
-      // 現在の history に「まだ含まれていない」データだけをフィルタリングする
       setHistory(prevHistory => {
         const newItemsOnly = parsedItems.filter(
-          newItem => !prevHistory.some(oldItem => oldItem.id === newItem.id)
+          newItem => !prevHistory.some(old => old.id === newItem.id)
         );
-
         if (newItemsOnly.length === 0) {
-          alert('⚠️ インポートされたデータはすべて登録済みです（重複はありません）。');
+          alert('⚠️ すべて登録済みです（重複なし）。');
           return prevHistory;
         }
-
-        // 新しく追加されるデータの合計金額だけを計算して減算する
         const totalNewSpent = newItemsOnly.reduce((sum, h) => sum + h.amount, 0);
-        setBalance(prev => prev - totalNewSpent);
-
-        // インポート後に自動固定費マイニングを実行
-        mineFixedCosts([...newItemsOnly, ...prevHistory]);
-        
-        alert(`🎉 新規 ${newItemsOnly.length} 件の支出をインポートしました！`);
-        return [...newItemsOnly, ...prevHistory];
+        const newBalance = balance - totalNewSpent;
+        const newHistory = [...newItemsOnly, ...prevHistory];
+        setBalance(newBalance);
+        persistHistory(newHistory);
+        saveBalance(newBalance);
+        mineFixedCostsFromHistory([...newItemsOnly, ...prevHistory]);
+        alert(`🎉 新規 ${newItemsOnly.length} 件をインポートしました！`);
+        return newHistory;
       });
-
     } catch (err) {
       console.error(err);
-      alert('CSVのパースに失敗しました。文字コードやファイルを確認してください。');
+      alert('CSVのパースに失敗しました。');
     }
   };
 
-  // 楽天CSVアップロード用の仮関数 (エラー防止)
   const handleRakutenUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     alert('楽天カードCSVインポート機能（現在調整中）');
   };
 
-  // 週末の締め処理
   const executeWeeklyClose = (type: 'save' | 'carryOver') => {
     if (balance <= 0) {
-      alert('残金がありません。締め処理は不要です。');
+      alert('残金がありません。');
       return;
     }
     if (type === 'save') {
-      alert(`💰 残金 ¥${balance.toLocaleString()} を今週の貯蓄用口座へ回しました！`);
+      const newSavings = totalSavings + balance;
+      setTotalSavings(newSavings);
+      saveTotalSavings(newSavings);
+      alert(`💰 ¥${balance.toLocaleString()} を貯蓄に追加！累計貯蓄: ¥${newSavings.toLocaleString()}`);
     } else {
-      alert(`🏃‍♂️ 残金 ¥${balance.toLocaleString()} を来週の予算へ繰り越しました！`);
+      // 繰り越し: 来週の予算に残金を加算
+      const newBalance = WEEKLY_BUDGET + balance;
+      setBalance(newBalance);
+      saveBalance(newBalance);
+      alert(`🏃‍♂️ ¥${balance.toLocaleString()} を来週へ繰り越し！来週予算: ¥${newBalance.toLocaleString()}`);
+      return; // balanceリセットしない
     }
-    setBalance(30000); // 翌週の基本予算としてリセット
+    const newBalance = WEEKLY_BUDGET;
+    setBalance(newBalance);
+    saveBalance(newBalance);
+    saveLastWeekReset(new Date().toISOString());
   };
 
-  // 固定費のカスタム追加
+  const handleSetTargetSavings = (val: number) => {
+    setTargetSavings(val);
+    saveTargetSavings(val);
+  };
+
+  const handleSetSalaryDay = (val: number) => {
+    setSalaryDay(val);
+    saveSalaryDay(val);
+  };
+
   const addFixedCost = () => {
     const amt = parseInt(newFixedAmount, 10);
     if (!newFixedName || isNaN(amt) || amt <= 0) return;
-    setFixedCosts(prev => [...prev, { id: `fixed-custom-${Date.now()}`, name: newFixedName, amount: amt }]);
+    const newCosts = [...fixedCosts, { id: `fixed-custom-${Date.now()}`, name: newFixedName, amount: amt }];
+    setFixedCosts(newCosts);
+    saveFixedCosts(newCosts);
     setNewFixedName('');
     setNewFixedAmount('');
   };
 
-  // 固定費の削除
   const removeFixedCost = (id: string) => {
-    setFixedCosts(prev => prev.filter(f => f.id !== id));
+    const newCosts = fixedCosts.filter(f => f.id !== id);
+    setFixedCosts(newCosts);
+    saveFixedCosts(newCosts);
   };
 
-  // 🧠 周期データ解析型・固定費マイニングロジック
-  const mineFixedCosts = (allHistory: HistoryItem[]) => {
-    // 簡易的な名前の正規化と周期性の検出
+  // 固定費マイニング
+  const mineFixedCostsFromHistory = (allHistory: HistoryItem[]) => {
     const groups: Record<string, string[]> = {};
     allHistory.forEach(h => {
-      // 店名から「 - ○○店」のような個別表記をカットして共通化
       const normalized = h.name.split(' - ')[0].trim();
       if (!groups[normalized]) groups[normalized] = [];
       groups[normalized].push(h.date);
     });
-
     const candidates: MinedCandidate[] = [];
     Object.entries(groups).forEach(([name, dates]) => {
       if (dates.length >= 2) {
-        // 出現頻度が高いものを固定費候補（サブスク等）として抽出
         const amounts = allHistory.filter(h => h.name.startsWith(name)).map(h => h.amount);
         const avgAmount = Math.round(amounts.reduce((s, a) => s + a, 0) / amounts.length);
-        
-        // 日付から「何日頃」か推測
         const days = dates.map(d => parseInt(d.split('/')[2], 10));
         const typicalDay = Math.round(days.reduce((s, d) => s + d, 0) / days.length);
-
-        // 金額の変動が少ないかチェック
         const isConstant = amounts.every(a => Math.abs(a - avgAmount) < avgAmount * 0.05);
-
-        // 既に固定費として登録されている名前は除外
         const alreadyRegistered = fixedCosts.some(f => f.name.includes(name));
-
         if (!alreadyRegistered && avgAmount > 0) {
-          candidates.push({
-            normalizedName: name,
-            averageAmount: avgAmount,
-            typicalDay: typicalDay,
-            isConstantAmount: isConstant,
-            appearances: dates,
-          });
+          candidates.push({ normalizedName: name, averageAmount: avgAmount, typicalDay, isConstantAmount: isConstant, appearances: dates });
         }
       }
     });
     setMinedCandidates(candidates);
   };
 
-  // マイニングされた候補を固定費に承認・同期する
   const acceptAsFixedCost = (candidate: MinedCandidate) => {
-    setFixedCosts(prev => [
-      ...prev,
-      {
-        id: `fixed-mined-${Date.now()}`,
-        name: `🔄 ${candidate.normalizedName}`,
-        amount: candidate.averageAmount,
-      },
-    ]);
+    const newCosts = [...fixedCosts, { id: `fixed-mined-${Date.now()}`, name: `🔄 ${candidate.normalizedName}`, amount: candidate.averageAmount }];
+    setFixedCosts(newCosts);
+    saveFixedCosts(newCosts);
     setMinedCandidates(prev => prev.filter(c => c.normalizedName !== candidate.normalizedName));
   };
 
-  // AIコンサルティング用のプロンプト自動生成
-  const generatedPrompt = useMemo(() => {
-    return `
+  const estimatedIncome = useMemo(() =>
+    fixedCosts.reduce((sum, f) => sum + f.amount, 0) + 60000,
+    [fixedCosts]
+  );
+
+  const currentMonthReport = useMemo(() =>
+    monthlyReports.find(r => r.month === currentCycle.label),
+    [monthlyReports, currentCycle.label]
+  );
+
+  const savingsRate = useMemo(() =>
+    estimatedIncome > 0 ? Math.round(((currentMonthReport?.saved || 0) / estimatedIncome) * 100) : 0,
+    [estimatedIncome, currentMonthReport]
+  );
+
+  const generatedPrompt = useMemo(() => `
 # あなたは超一流の資産形成・家計改善コンサルタントです。
-以下のリアルタイムな家計データと、固定費自動解析エンジンが検出したデータパターンを分析し、私に最適な「不労所得・長期貯蓄目標」を達成するための具体的な改善提案をしてください。
+以下のリアルタイムな家計データを分析し、「長期貯蓄目標」達成のための改善提案をしてください。
 
 ## 1. 基本ステータス
 - 現在のサイクル: ${currentCycle.label} (給料日: ${salaryDay}日)
 - 今週の自由残金: ¥${balance.toLocaleString()}
+- 累計貯蓄額: ¥${totalSavings.toLocaleString()}
 - 長期貯蓄目標額: ¥${targetSavings.toLocaleString()}
 
-## 2. 毎月の固定費・サブスク一覧
+## 2. 毎月の固定費
 ${fixedCosts.map(f => `- ${f.name}: ¥${f.amount.toLocaleString()}`).join('\n')}
 
-## 3. マイニングエンジンによる固定費・変動費の自動検出パターン
-${minedCandidates.map(c => `- [${c.isConstantAmount ? '定額' : '変動'}] ${c.normalizedName}: 平均¥${c.averageAmount.toLocaleString()} (毎月${c.typicalDay}日頃、計${c.appearances.length}回出現)`).join('\n')}
+## 3. 自動検出された固定費候補
+${minedCandidates.map(c => `- [${c.isConstantAmount ? '定額' : '変動'}] ${c.normalizedName}: 平均¥${c.averageAmount.toLocaleString()} (毎月${c.typicalDay}日頃)`).join('\n')}
 
 ## 4. 直近の支出ログ (上位20件)
 ${history.slice(0, 20).map(h => `- ${h.date} | ${h.name} | ¥${h.amount.toLocaleString()} (${h.category})`).join('\n')}
-
----
-【出力要求】
-1. 固定費の中で「解約または削減を検討すべき無駄」の指摘
-2. 貯蓄目標額を達成するための、今期の具体的な予算配分のアドバイス
-`;
-  }, [balance, targetSavings, salaryDay, fixedCosts, minedCandidates, history, currentCycle]);
+`, [balance, totalSavings, targetSavings, salaryDay, fixedCosts, minedCandidates, history, currentCycle]);
 
   return {
     state: {
       isMounted, activeTab, graphType, openSettingSection, showPromptModal,
-      history, balance, targetSavings, salaryDay, fixedCosts,
+      history, archivedReports, balance, totalSavings, targetSavings, salaryDay, fixedCosts,
       amount, category, newFixedName, newFixedAmount, minedCandidates,
-      generatedPrompt, currentCycle, monthlyReports, CATEGORIES
+      generatedPrompt, currentCycle, monthlyReports, CATEGORIES,
+      estimatedIncome, savingsRate, storageUsageKB,
     },
     actions: {
       setActiveTab, setGraphType, setOpenSettingSection, setShowPromptModal,
-      setAmount, setCategory, setNewFixedName, setNewFixedAmount, setTargetSavings, setSalaryDay,
-      handleSpend, deleteHistory, handleFileUpload, handleRakutenUpload, executeWeeklyClose, addFixedCost, removeFixedCost, acceptAsFixedCost
+      setAmount, setCategory, setNewFixedName, setNewFixedAmount,
+      setTargetSavings: handleSetTargetSavings,
+      setSalaryDay: handleSetSalaryDay,
+      handleSpend, deleteHistory, handleFileUpload, handleRakutenUpload,
+      executeWeeklyClose, addFixedCost, removeFixedCost, acceptAsFixedCost,
     }
   };
 }
