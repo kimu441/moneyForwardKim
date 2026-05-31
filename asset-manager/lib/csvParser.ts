@@ -1,5 +1,5 @@
 // カテゴリの型を定義
-export type Category = '食費' | '日用品' | '交通費' | '旅行費' | '株' | '美容・衣服' | '交際費' | '趣味・娯楽' | '不明' | 'その他';
+export type Category = '生活費' | '食費' | '日用品' | '交通費' | '旅行費' | '株' | '美容・衣服' | '交際費' | '趣味・娯楽' | '不明' | 'その他';
 
 export interface HistoryItem {
   id: string;

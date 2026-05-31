@@ -3,14 +3,23 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { parsePayPayCSV, HistoryItem, Category } from '@/lib/csvParser';
 import {
   loadAll, saveHistory, saveBalance, saveTotalSavings,
-  saveTargetSavings, saveSalaryDay, saveFixedCosts, saveLastWeekReset,
-  getStorageUsageKB,
+  saveTargetSavings, saveSalaryDay, saveFixedCosts,
+  saveRakutenFixedCosts, saveMonthlyIncome, saveVariableBudget,
+  saveLastWeekReset, saveLastRakutenCharge, getStorageUsageKB,
 } from '@/lib/localStorage';
 
 export interface FixedCostItem {
   id: string;
   name: string;
   amount: number;
+}
+
+// ★ 楽天固定費（月次確定固定費）- PayPayマイニングとは別管理
+export interface RakutenFixedCostItem {
+  id: string;
+  name: string;
+  amount: number;
+  category: Category; // どのカテゴリに分類するか
 }
 
 export interface MinedCandidate {
@@ -27,16 +36,16 @@ export interface MonthlyReport {
   saved: number;
 }
 
-const DEFAULT_FIXED_COSTS: FixedCostItem[] = [
-  { id: 'f-1', name: '家賃・住宅', amount: 65000 },
-  { id: 'f-2', name: '通信費・サブスク', amount: 9800 },
+const DEFAULT_RAKUTEN_FIXED: RakutenFixedCostItem[] = [
+  { id: 'rf-1', name: '家賃・住宅', amount: 65000, category: 'その他' },
+  { id: 'rf-2', name: '通信費', amount: 9800, category: 'その他' },
 ];
 
-const WEEKLY_BUDGET = 30000;
+const WEEKLY_BUDGET_DEFAULT = 30000;
 
 export function useDashboard() {
   const CATEGORIES: Category[] = [
-    '食費', '日用品', '交通費', '旅行費', '株',
+   '生活費','食費', '日用品', '交通費', '旅行費', '株',
     '美容・衣服', '交際費', '趣味・娯楽', '不明', 'その他'
   ];
 
@@ -44,66 +53,113 @@ export function useDashboard() {
   const [isMounted, setIsMounted] = useState(false);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'analytics' | 'settings'>('dashboard');
   const [graphType, setGraphType] = useState<'week' | 'monthly'>('week');
-  const [openSettingSection, setOpenSettingSection] = useState<'mining' | 'target' | 'fixed' | null>(null);
+  const [openSettingSection, setOpenSettingSection] = useState<'mining' | 'target' | 'fixed' | 'rakuten' | 'income' | null>(null);
   const [showPromptModal, setShowPromptModal] = useState(false);
   const [storageUsageKB, setStorageUsageKB] = useState(0);
 
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [archivedReports, setArchivedReports] = useState<MonthlyReport[]>([]);
-  const [balance, setBalance] = useState<number>(WEEKLY_BUDGET);
-  const [totalSavings, setTotalSavings] = useState<number>(0); // 累計貯蓄額
+  const [balance, setBalance] = useState<number>(WEEKLY_BUDGET_DEFAULT);
+  const [totalSavings, setTotalSavings] = useState<number>(0);
   const [targetSavings, setTargetSavings] = useState<number>(2000000);
   const [salaryDay, setSalaryDay] = useState<number>(25);
-  const [fixedCosts, setFixedCosts] = useState<FixedCostItem[]>(DEFAULT_FIXED_COSTS);
 
-  const [amount, setAmount] = useState<string>('');
+  // PayPayマイニング由来の変動費的固定費（週次管理）
+  const [fixedCosts, setFixedCosts] = useState<FixedCostItem[]>([]);
+  // 楽天カード由来の確定固定費（月次・25日に一括計上）
+  const [rakutenFixedCosts, setRakutenFixedCosts] = useState<RakutenFixedCostItem[]>(DEFAULT_RAKUTEN_FIXED);
+
+  // 収入・予算設定
+  const [monthlyIncome, setMonthlyIncome] = useState<number>(0);       // 月収（手取り）
+  const [variableBudget, setVariableBudget] = useState<number>(120000); // 月の変動費予算
+
+  const [amount, setAmount] = useState('');
   const [category, setCategory] = useState<Category>('食費');
   const [newFixedName, setNewFixedName] = useState('');
   const [newFixedAmount, setNewFixedAmount] = useState('');
+  const [newRakutenName, setNewRakutenName] = useState('');
+  const [newRakutenAmount, setNewRakutenAmount] = useState('');
+  const [newRakutenCategory, setNewRakutenCategory] = useState<Category>('その他');
+
   const [minedCandidates, setMinedCandidates] = useState<MinedCandidate[]>([]);
 
-  // ---- 初期化: LocalStorageから復元 ----
+  // ---- 初期化 ----
   useEffect(() => {
     const saved = loadAll();
     if (saved) {
       setHistory(saved.history);
       setArchivedReports(saved.archives);
-      // balanceが0の場合もきちんと復元（NaN対策）
-      setBalance(isNaN(saved.balance) ? WEEKLY_BUDGET : saved.balance);
+      setBalance(isNaN(saved.balance) ? WEEKLY_BUDGET_DEFAULT : saved.balance);
       setTotalSavings(isNaN(saved.totalSavings) ? 0 : saved.totalSavings);
       setTargetSavings(isNaN(saved.targetSavings) ? 2000000 : saved.targetSavings);
       setSalaryDay(isNaN(saved.salaryDay) ? 25 : saved.salaryDay);
       if (saved.fixedCosts) setFixedCosts(saved.fixedCosts);
+      if (saved.rakutenFixedCosts) setRakutenFixedCosts(saved.rakutenFixedCosts);
+      if (!isNaN(saved.monthlyIncome)) setMonthlyIncome(saved.monthlyIncome);
+      if (!isNaN(saved.variableBudget)) setVariableBudget(saved.variableBudget);
 
-      // 週次自動リセットチェック
-      checkWeeklyAutoReset(saved.lastWeekReset, isNaN(saved.balance) ? WEEKLY_BUDGET : saved.balance);
+      checkWeeklyAutoReset(saved.lastWeekReset);
+      checkRakutenMonthlyCharge(saved.lastRakutenCharge, saved.rakutenFixedCosts ?? DEFAULT_RAKUTEN_FIXED, saved.history);
     }
     setStorageUsageKB(getStorageUsageKB());
     setIsMounted(true);
   }, []);
 
-  // 週次自動リセット: 前回リセット日が今週の月曜より前なら自動リセット
-  const checkWeeklyAutoReset = (lastReset: string | null, currentBalance: number) => {
+  // 週次自動リセット（月曜基準）
+  const checkWeeklyAutoReset = (lastReset: string | null) => {
     const now = new Date();
-    // 今週の月曜日を計算
-    const dayOfWeek = now.getDay(); // 0=日, 1=月...
+    const dayOfWeek = now.getDay();
     const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
     const thisMonday = new Date(now);
     thisMonday.setDate(now.getDate() + diffToMonday);
     thisMonday.setHours(0, 0, 0, 0);
-
     if (!lastReset || new Date(lastReset) < thisMonday) {
-      // 今週まだリセットしていない → 残金を0として新しい週の予算をセット
-      // ※ 残金は0にせず「繰り越し」扱いにする（オプション: ここでは単純リセット）
-      setBalance(WEEKLY_BUDGET);
-      const resetDate = now.toISOString();
-      saveLastWeekReset(resetDate);
-      saveBalance(WEEKLY_BUDGET);
-      console.log('📅 週次予算を自動リセットしました');
+      setBalance(WEEKLY_BUDGET_DEFAULT);
+      saveBalance(WEEKLY_BUDGET_DEFAULT);
+      saveLastWeekReset(now.toISOString());
     }
   };
 
-  // ---- 給料日サイクル計算 ----
+  // ★ 楽天固定費の月次自動計上（給料日=25日 に一括計上）
+  const checkRakutenMonthlyCharge = (
+    lastCharge: string | null,
+    costs: RakutenFixedCostItem[],
+    currentHistory: HistoryItem[]
+  ) => {
+    const now = new Date();
+    const salaryDayNum = 25; // 固定で25日
+
+    // 今月の計上済みかチェック
+    const thisMonthKey = `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, '0')}`;
+    if (lastCharge && lastCharge.startsWith(thisMonthKey)) return;
+
+    // 今日が給料日以降なら計上
+    if (now.getDate() < salaryDayNum) return;
+
+    // 楽天固定費を履歴に一括追加
+    const chargeDate = `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, '0')}/${String(salaryDayNum).padStart(2, '0')}`;
+    const newItems: HistoryItem[] = costs.map(c => ({
+      id: `rakuten-monthly-${c.id}-${thisMonthKey}`,
+      date: chargeDate,
+      name: `💳 ${c.name}`,
+      amount: c.amount,
+      category: c.category,
+    }));
+
+    // 重複チェック（同月に既に計上済みの項目は除外）
+    const filtered = newItems.filter(
+      item => !currentHistory.some(h => h.id === item.id)
+    );
+    if (filtered.length === 0) return;
+
+    const newHistory = [...filtered, ...currentHistory];
+    setHistory(newHistory);
+    saveHistory(newHistory, []);
+    saveLastRakutenCharge(thisMonthKey);
+    console.log(`💳 楽天固定費 ${filtered.length}件を${chargeDate}付けで計上しました`);
+  };
+
+  // ---- 給料日サイクル ----
   const currentCycle = useMemo(() => {
     const now = new Date();
     const year = now.getFullYear();
@@ -121,26 +177,48 @@ export function useDashboard() {
     return { start, label };
   }, [salaryDay]);
 
-  // ---- 月次レポート（実データ + アーカイブ）----
-  const monthlyReports: MonthlyReport[] = useMemo(() => {
-    // 現在サイクルの支出を実データから計算
+  // ---- 月次収支計算 ----
+  const monthlySummary = useMemo(() => {
+    const rakutenTotal = rakutenFixedCosts.reduce((s, c) => s + c.amount, 0);
+    const plannedSavings = Math.max(0, monthlyIncome - rakutenTotal - variableBudget);
+    // 今月の変動費実績（楽天固定費を除く）
     const cycleStart = currentCycle.start;
-    const currentSpent = history
-      .filter(h => new Date(h.date.replace(/\//g, '-')) >= cycleStart)
-      .reduce((sum, h) => sum + h.amount, 0);
+    const actualVariable = history
+      .filter(h =>
+        new Date(h.date.replace(/\//g, '-')) >= cycleStart &&
+        !h.id.startsWith('rakuten-monthly-')
+      )
+      .reduce((s, h) => s + h.amount, 0);
+    const variableProgress = variableBudget > 0
+      ? Math.min(100, Math.round((actualVariable / variableBudget) * 100))
+      : 0;
+    const variableRemaining = Math.max(0, variableBudget - actualVariable);
+    const variableOver = actualVariable > variableBudget;
 
+    return {
+      rakutenTotal,       // 楽天固定費合計
+      plannedSavings,     // 予定貯蓄額
+      actualVariable,     // 実績変動費
+      variableProgress,   // 変動費消化率(%)
+      variableRemaining,  // 変動費残額
+      variableOver,       // 予算オーバーフラグ
+    };
+  }, [rakutenFixedCosts, monthlyIncome, variableBudget, history, currentCycle.start]);
+
+  // ---- 月次レポート ----
+  const monthlyReports: MonthlyReport[] = useMemo(() => {
+    const currentSpent = history
+      .filter(h => new Date(h.date.replace(/\//g, '-')) >= currentCycle.start)
+      .reduce((s, h) => s + h.amount, 0);
     const currentReport: MonthlyReport = {
       month: currentCycle.label,
       spent: currentSpent,
-      saved: totalSavings, // 今期の累計貯蓄
+      saved: totalSavings,
     };
-
-    // アーカイブ（圧縮済み過去月）+ 現在月を結合し、直近6ヶ月だけ表示
-    const allReports = [...archivedReports, currentReport];
-    return allReports.slice(-6); // 直近6ヶ月
+    return [...archivedReports, currentReport].slice(-6);
   }, [history, archivedReports, currentCycle, totalSavings]);
 
-  // ---- 保存ヘルパー（useCallbackでメモ化）----
+  // ---- 永続化ヘルパー ----
   const persistHistory = useCallback((newHistory: HistoryItem[]) => {
     const { activeHistory, archives } = saveHistory(newHistory, archivedReports);
     if (activeHistory.length !== newHistory.length) {
@@ -200,13 +278,13 @@ export function useDashboard() {
           alert('⚠️ すべて登録済みです（重複なし）。');
           return prevHistory;
         }
-        const totalNewSpent = newItemsOnly.reduce((sum, h) => sum + h.amount, 0);
+        const totalNewSpent = newItemsOnly.reduce((s, h) => s + h.amount, 0);
         const newBalance = balance - totalNewSpent;
         const newHistory = [...newItemsOnly, ...prevHistory];
         setBalance(newBalance);
         persistHistory(newHistory);
         saveBalance(newBalance);
-        mineFixedCostsFromHistory([...newItemsOnly, ...prevHistory]);
+        mineFixedCostsFromHistory(newHistory);
         alert(`🎉 新規 ${newItemsOnly.length} 件をインポートしました！`);
         return newHistory;
       });
@@ -221,37 +299,42 @@ export function useDashboard() {
   };
 
   const executeWeeklyClose = (type: 'save' | 'carryOver') => {
-    if (balance <= 0) {
-      alert('残金がありません。');
-      return;
-    }
+    if (balance <= 0) { alert('残金がありません。'); return; }
     if (type === 'save') {
       const newSavings = totalSavings + balance;
       setTotalSavings(newSavings);
       saveTotalSavings(newSavings);
-      alert(`💰 ¥${balance.toLocaleString()} を貯蓄に追加！累計貯蓄: ¥${newSavings.toLocaleString()}`);
+      alert(`💰 ¥${balance.toLocaleString()} を貯蓄に追加！累計: ¥${newSavings.toLocaleString()}`);
+      setBalance(WEEKLY_BUDGET_DEFAULT);
+      saveBalance(WEEKLY_BUDGET_DEFAULT);
     } else {
-      // 繰り越し: 来週の予算に残金を加算
-      const newBalance = WEEKLY_BUDGET + balance;
+      const newBalance = WEEKLY_BUDGET_DEFAULT + balance;
       setBalance(newBalance);
       saveBalance(newBalance);
       alert(`🏃‍♂️ ¥${balance.toLocaleString()} を来週へ繰り越し！来週予算: ¥${newBalance.toLocaleString()}`);
-      return; // balanceリセットしない
+      return;
     }
-    const newBalance = WEEKLY_BUDGET;
-    setBalance(newBalance);
-    saveBalance(newBalance);
     saveLastWeekReset(new Date().toISOString());
   };
 
-  const handleSetTargetSavings = (val: number) => {
-    setTargetSavings(val);
-    saveTargetSavings(val);
+  // 楽天固定費の追加・削除
+  const addRakutenFixedCost = () => {
+    const amt = parseInt(newRakutenAmount, 10);
+    if (!newRakutenName || isNaN(amt) || amt <= 0) return;
+    const newCosts = [
+      ...rakutenFixedCosts,
+      { id: `rf-${Date.now()}`, name: newRakutenName, amount: amt, category: newRakutenCategory }
+    ];
+    setRakutenFixedCosts(newCosts);
+    saveRakutenFixedCosts(newCosts);
+    setNewRakutenName('');
+    setNewRakutenAmount('');
   };
 
-  const handleSetSalaryDay = (val: number) => {
-    setSalaryDay(val);
-    saveSalaryDay(val);
+  const removeRakutenFixedCost = (id: string) => {
+    const newCosts = rakutenFixedCosts.filter(c => c.id !== id);
+    setRakutenFixedCosts(newCosts);
+    saveRakutenFixedCosts(newCosts);
   };
 
   const addFixedCost = () => {
@@ -270,14 +353,21 @@ export function useDashboard() {
     saveFixedCosts(newCosts);
   };
 
-  // 固定費マイニング
+  const handleSetMonthlyIncome = (v: number) => { setMonthlyIncome(v); saveMonthlyIncome(v); };
+  const handleSetVariableBudget = (v: number) => { setVariableBudget(v); saveVariableBudget(v); };
+  const handleSetTargetSavings = (v: number) => { setTargetSavings(v); saveTargetSavings(v); };
+  const handleSetSalaryDay = (v: number) => { setSalaryDay(v); saveSalaryDay(v); };
+
+  // PayPayマイニング
   const mineFixedCostsFromHistory = (allHistory: HistoryItem[]) => {
     const groups: Record<string, string[]> = {};
-    allHistory.forEach(h => {
-      const normalized = h.name.split(' - ')[0].trim();
-      if (!groups[normalized]) groups[normalized] = [];
-      groups[normalized].push(h.date);
-    });
+    allHistory
+      .filter(h => !h.id.startsWith('rakuten-monthly-')) // 楽天固定費は除外
+      .forEach(h => {
+        const normalized = h.name.split(' - ')[0].trim();
+        if (!groups[normalized]) groups[normalized] = [];
+        groups[normalized].push(h.date);
+      });
     const candidates: MinedCandidate[] = [];
     Object.entries(groups).forEach(([name, dates]) => {
       if (dates.length >= 2) {
@@ -296,62 +386,77 @@ export function useDashboard() {
   };
 
   const acceptAsFixedCost = (candidate: MinedCandidate) => {
-    const newCosts = [...fixedCosts, { id: `fixed-mined-${Date.now()}`, name: `🔄 ${candidate.normalizedName}`, amount: candidate.averageAmount }];
+    const newCosts = [...fixedCosts, {
+      id: `fixed-mined-${Date.now()}`,
+      name: `🔄 ${candidate.normalizedName}`,
+      amount: candidate.averageAmount,
+    }];
     setFixedCosts(newCosts);
     saveFixedCosts(newCosts);
     setMinedCandidates(prev => prev.filter(c => c.normalizedName !== candidate.normalizedName));
   };
 
-  const estimatedIncome = useMemo(() =>
-    fixedCosts.reduce((sum, f) => sum + f.amount, 0) + 60000,
-    [fixedCosts]
-  );
+  // ---- 派生値 ----
+  const savingsProgress = Math.min(100, Math.round((totalSavings / targetSavings) * 100));
 
-  const currentMonthReport = useMemo(() =>
-    monthlyReports.find(r => r.month === currentCycle.label),
-    [monthlyReports, currentCycle.label]
-  );
+  const savingsRate = useMemo(() => {
+    if (monthlyIncome <= 0) return 0;
+    return Math.round((monthlySummary.plannedSavings / monthlyIncome) * 100);
+  }, [monthlyIncome, monthlySummary.plannedSavings]);
 
-  const savingsRate = useMemo(() =>
-    estimatedIncome > 0 ? Math.round(((currentMonthReport?.saved || 0) / estimatedIncome) * 100) : 0,
-    [estimatedIncome, currentMonthReport]
+  // ★ 最新順ソート済み履歴
+  const sortedHistory = useMemo(() =>
+    [...history].sort((a, b) =>
+      new Date(b.date.replace(/\//g, '-')).getTime() -
+      new Date(a.date.replace(/\//g, '-')).getTime()
+    ),
+    [history]
   );
 
   const generatedPrompt = useMemo(() => `
 # あなたは超一流の資産形成・家計改善コンサルタントです。
-以下のリアルタイムな家計データを分析し、「長期貯蓄目標」達成のための改善提案をしてください。
 
 ## 1. 基本ステータス
-- 現在のサイクル: ${currentCycle.label} (給料日: ${salaryDay}日)
-- 今週の自由残金: ¥${balance.toLocaleString()}
-- 累計貯蓄額: ¥${totalSavings.toLocaleString()}
-- 長期貯蓄目標額: ¥${targetSavings.toLocaleString()}
+- サイクル: ${currentCycle.label} / 給料日: ${salaryDay}日
+- 月収（手取り）: ¥${monthlyIncome.toLocaleString()}
+- 今週の残金: ¥${balance.toLocaleString()}
+- 累計貯蓄: ¥${totalSavings.toLocaleString()} / 目標: ¥${targetSavings.toLocaleString()}
 
-## 2. 毎月の固定費
-${fixedCosts.map(f => `- ${f.name}: ¥${f.amount.toLocaleString()}`).join('\n')}
+## 2. 楽天カード確定固定費（月次）
+${rakutenFixedCosts.map(c => `- ${c.name}: ¥${c.amount.toLocaleString()}`).join('\n')}
+合計: ¥${monthlySummary.rakutenTotal.toLocaleString()}
 
-## 3. 自動検出された固定費候補
-${minedCandidates.map(c => `- [${c.isConstantAmount ? '定額' : '変動'}] ${c.normalizedName}: 平均¥${c.averageAmount.toLocaleString()} (毎月${c.typicalDay}日頃)`).join('\n')}
+## 3. 今月の変動費状況
+- 予算: ¥${variableBudget.toLocaleString()}
+- 実績: ¥${monthlySummary.actualVariable.toLocaleString()} (${monthlySummary.variableProgress}%)
 
 ## 4. 直近の支出ログ (上位20件)
-${history.slice(0, 20).map(h => `- ${h.date} | ${h.name} | ¥${h.amount.toLocaleString()} (${h.category})`).join('\n')}
-`, [balance, totalSavings, targetSavings, salaryDay, fixedCosts, minedCandidates, history, currentCycle]);
+${sortedHistory.slice(0, 20).map(h => `- ${h.date} | ${h.name} | ¥${h.amount.toLocaleString()} (${h.category})`).join('\n')}
+`, [balance, totalSavings, targetSavings, salaryDay, monthlyIncome, variableBudget,
+    rakutenFixedCosts, monthlySummary, sortedHistory, currentCycle]);
 
   return {
     state: {
       isMounted, activeTab, graphType, openSettingSection, showPromptModal,
-      history, archivedReports, balance, totalSavings, targetSavings, salaryDay, fixedCosts,
-      amount, category, newFixedName, newFixedAmount, minedCandidates,
-      generatedPrompt, currentCycle, monthlyReports, CATEGORIES,
-      estimatedIncome, savingsRate, storageUsageKB,
+      history, sortedHistory, archivedReports, balance, totalSavings, targetSavings,
+      salaryDay, fixedCosts, rakutenFixedCosts,
+      monthlyIncome, variableBudget, monthlySummary,
+      amount, category, newFixedName, newFixedAmount,
+      newRakutenName, newRakutenAmount, newRakutenCategory,
+      minedCandidates, generatedPrompt, currentCycle, monthlyReports,
+      CATEGORIES, savingsProgress, savingsRate, storageUsageKB,
     },
     actions: {
       setActiveTab, setGraphType, setOpenSettingSection, setShowPromptModal,
       setAmount, setCategory, setNewFixedName, setNewFixedAmount,
+      setNewRakutenName, setNewRakutenAmount, setNewRakutenCategory,
       setTargetSavings: handleSetTargetSavings,
       setSalaryDay: handleSetSalaryDay,
+      setMonthlyIncome: handleSetMonthlyIncome,
+      setVariableBudget: handleSetVariableBudget,
       handleSpend, deleteHistory, handleFileUpload, handleRakutenUpload,
-      executeWeeklyClose, addFixedCost, removeFixedCost, acceptAsFixedCost,
+      executeWeeklyClose, addFixedCost, removeFixedCost,
+      addRakutenFixedCost, removeRakutenFixedCost, acceptAsFixedCost,
     }
   };
 }
