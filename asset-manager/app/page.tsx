@@ -70,7 +70,7 @@ export default function Dashboard() {
   }, [state.history, state.CATEGORIES, state.currentCycle.start]);
 
   return (
-    <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-5 bg-slate-50 min-h-screen text-slate-800 font-sans antialiased">
+    <div className="p-4 md:p-6 max-w-6xl mx-auto space-y-5 bg-slate-50 min-h-screen text-slate-800 font-sans antialiased">
 
       {/* ヘッダー */}
       <div className="flex justify-between items-center bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
