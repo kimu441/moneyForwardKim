@@ -2,11 +2,11 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { parsePayPayCSV, HistoryItem, Category } from '@/lib/csvParser';
 import {
-  loadAll, saveHistory, saveBalance, saveTotalSavings,
+  loadAll, saveHistory, saveTotalSavings,
   saveTargetSavings, saveSalaryDay, saveWeeklyBudget, saveFixedCosts,
   saveRakutenFixedCosts, saveMonthlyIncome, saveVariableBudget,
   saveTravelExpenses, saveLastWeekReset, saveLastRakutenCharge,
-  saveLastTravelReset, getStorageUsageKB,
+  saveLastTravelReset, saveWeeklyCarryOver, getStorageUsageKB,
 } from '@/lib/localStorage';
 
 export interface FixedCostItem {
@@ -55,14 +55,25 @@ export const formatDate = (d: Date): string =>
 
 const toDate = (s: string) => new Date(s.replace(/\//g, '-'));
 
+// 指定期間の変動費合計（楽天固定費は除外）
+const calcWeekVariableSpent = (hist: HistoryItem[], start: Date, end: Date) => {
+  return hist
+    .filter(h => !h.id.startsWith('rakuten-monthly-'))
+    .filter(h => {
+      const d = toDate(h.date);
+      return d >= start && d <= end;
+    })
+    .reduce((s, h) => s + h.amount, 0);
+};
+
 const DEFAULT_RAKUTEN_FIXED: RakutenFixedCostItem[] = [
   { id: 'rf-1', name: '家賃・住宅', amount: 65000, category: 'その他' },
   { id: 'rf-2', name: '通信費',     amount: 9800,  category: 'その他' },
 ];
 
 export function useDashboard() {
-  const CATEGORIES: Category[] = [ 
-    '生活費','食費', '日用品', '交通費', '旅行費', '株',
+  const CATEGORIES: Category[] = [
+    '食費', '日用品', '交通費', '旅行費', '株',
     '美容・衣服', '交際費', '趣味・娯楽', '不明', 'その他',
   ];
 
@@ -79,16 +90,16 @@ export function useDashboard() {
   // ---- Data State ----
   const [history,            setHistory]            = useState<HistoryItem[]>([]);
   const [archivedReports,    setArchivedReports]    = useState<MonthlyReport[]>([]);
-  const [balance,            setBalance]            = useState(15000);
   const [totalSavings,       setTotalSavings]       = useState(0);
   const [targetSavings,      setTargetSavings]      = useState(2000000);
   const [salaryDay,          setSalaryDay]          = useState(25);
   const [weeklyBudget,       setWeeklyBudget]       = useState(15000);
+  // ★ 来週への繰り越し額（今週の予算に上乗せされる分）
+  const [weeklyCarryOver,    setWeeklyCarryOver]    = useState(0);
   const [fixedCosts,         setFixedCosts]         = useState<FixedCostItem[]>([]);
   const [rakutenFixedCosts,  setRakutenFixedCosts]  = useState<RakutenFixedCostItem[]>(DEFAULT_RAKUTEN_FIXED);
   const [monthlyIncome,      setMonthlyIncome]      = useState(0);
   const [variableBudget,     setVariableBudget]     = useState(120000);
-  // 旅行費（今月分のみ・24日リセット）
   const [travelExpenses,     setTravelExpenses]     = useState<HistoryItem[]>([]);
   const [minedCandidates,    setMinedCandidates]    = useState<MinedCandidate[]>([]);
 
@@ -109,18 +120,18 @@ export function useDashboard() {
     if (saved) {
       setHistory(saved.history);
       setArchivedReports(saved.archives);
-      setBalance(isNaN(saved.balance) ? 15000 : saved.balance);
       setTotalSavings(isNaN(saved.totalSavings) ? 0 : saved.totalSavings);
       setTargetSavings(isNaN(saved.targetSavings) ? 2000000 : saved.targetSavings);
       setSalaryDay(isNaN(saved.salaryDay) ? 25 : saved.salaryDay);
       setWeeklyBudget(isNaN(saved.weeklyBudget) ? 15000 : saved.weeklyBudget);
+      setWeeklyCarryOver(isNaN(saved.weeklyCarryOver) ? 0 : saved.weeklyCarryOver);
       if (saved.fixedCosts) setFixedCosts(saved.fixedCosts);
       if (saved.rakutenFixedCosts) setRakutenFixedCosts(saved.rakutenFixedCosts);
       if (!isNaN(saved.monthlyIncome)) setMonthlyIncome(saved.monthlyIncome);
       if (!isNaN(saved.variableBudget)) setVariableBudget(saved.variableBudget);
       setTravelExpenses(saved.travelExpenses || []);
 
-      checkWeeklyAutoReset(saved.lastWeekReset, isNaN(saved.weeklyBudget) ? 15000 : saved.weeklyBudget);
+      checkWeeklyAutoReset(saved.lastWeekReset);
       checkRakutenMonthlyCharge(saved.lastRakutenCharge, saved.rakutenFixedCosts ?? DEFAULT_RAKUTEN_FIXED, saved.history);
       checkTravelReset(saved.lastTravelReset);
     }
@@ -128,17 +139,17 @@ export function useDashboard() {
     setIsMounted(true);
   }, []);
 
-  // ---- 週次自動リセット（毎週月曜 → weeklyBudgetにリセット）----
+  // ---- 週次自動リセット ----
   // 【仕組み解説】
-  // lastWeekResetに「前回リセットした日時」を保存。
-  // 今週の月曜0:00と比較し、lastWeekResetがそれより古ければ今週未リセットと判断してリセット。
-  const checkWeeklyAutoReset = (lastReset: string | null, budget: number) => {
+  // 今週の残金は「週予算 + 繰り越し額 − 今週のhistory支出合計」で動的計算される。
+  // 月曜になったら「繰り越し額」を0にリセットするだけで済む（残金自体はhistoryから自動で再計算される）。
+  const checkWeeklyAutoReset = (lastReset: string | null) => {
     const { start: thisMonday } = getWeekRange(new Date());
     if (!lastReset || new Date(lastReset) < thisMonday) {
-      setBalance(budget);
-      saveBalance(budget);
+      setWeeklyCarryOver(0);
+      saveWeeklyCarryOver(0);
       saveLastWeekReset(new Date().toISOString());
-      console.log('📅 週次予算を自動リセットしました（¥' + budget + '）');
+      console.log('📅 週が変わったため、繰り越し額をリセットしました');
     }
   };
 
@@ -175,7 +186,6 @@ export function useDashboard() {
     const thisMonthKey = `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, '0')}`;
     if (lastReset?.startsWith(thisMonthKey)) return;
     if (now.getDate() < 24) return;
-    // 24日以降で今月まだリセットしていなければ旅行費を0に
     setTravelExpenses([]);
     saveTravelExpenses([]);
     saveLastTravelReset(thisMonthKey);
@@ -191,7 +201,7 @@ export function useDashboard() {
     return { start, end, label, isCurrentWeek: weekOffset === 0 };
   }, [weekOffset]);
 
-  // ---- 表示中の週の変動費（楽天・旅行費を除く）----
+  // ---- 表示中の週の変動費明細（楽天固定費を除く）----
   const viewingWeekVariable = useMemo(() => {
     return history.filter(h => {
       if (h.id.startsWith('rakuten-monthly-')) return false;
@@ -205,17 +215,22 @@ export function useDashboard() {
     [viewingWeekVariable]
   );
 
-  // 来週の残金（予算 - 来週分のすでに記録された支出）
+  // ★ 今週の残金（historyから動的計算。ストック値は持たない）
+  const currentWeekBalance = useMemo(() => {
+    const spent = calcWeekVariableSpent(history, viewingWeek.start, viewingWeek.end);
+    if (weekOffset === 0) {
+      return weeklyBudget + weeklyCarryOver - spent;
+    }
+    return weeklyBudget - spent;
+  }, [history, weeklyBudget, weeklyCarryOver, viewingWeek, weekOffset]);
+
+  // 来週の予測残金（来週分の予算 + 繰り越しなし - 来週分の既存支出）
   const nextWeekBalance = useMemo(() => {
     if (weekOffset !== 0) return null;
     const base = new Date();
     base.setDate(base.getDate() + 7);
     const { start, end } = getWeekRange(base);
-    const nextSpent = history.filter(h => {
-      if (h.id.startsWith('rakuten-monthly-')) return false;
-      const d = toDate(h.date);
-      return d >= start && d <= end;
-    }).reduce((s, h) => s + h.amount, 0);
+    const nextSpent = calcWeekVariableSpent(history, start, end);
     return weeklyBudget - nextSpent;
   }, [history, weeklyBudget, weekOffset]);
 
@@ -265,19 +280,14 @@ export function useDashboard() {
     return [...archivedReports, current].slice(-6);
   }, [history, archivedReports, currentCycle, totalSavings]);
 
-  // ---- 週次分析データ（詳細分析タブ用）----
+  // ---- 週次分析データ（直近8週）----
   const weeklyAnalytics = useMemo(() => {
-    // 直近8週分の週ごとの変動費集計
     const weeks: { label: string; spent: number; budget: number; rate: number }[] = [];
     for (let i = 7; i >= 0; i--) {
       const base = new Date();
       base.setDate(base.getDate() - i * 7);
       const { start, end } = getWeekRange(base);
-      const spent = history.filter(h => {
-        if (h.id.startsWith('rakuten-monthly-')) return false;
-        const d = toDate(h.date);
-        return d >= start && d <= end;
-      }).reduce((s, h) => s + h.amount, 0);
+      const spent = calcWeekVariableSpent(history, start, end);
       weeks.push({
         label: `${String(start.getMonth() + 1)}/${String(start.getDate())}週`,
         spent,
@@ -313,12 +323,9 @@ export function useDashboard() {
       category,
     };
     const newHistory = [newLog, ...history];
-    const newBalance = balance - parsed;
     setHistory(newHistory);
-    setBalance(newBalance);
     setAmount('');
     persistHistory(newHistory);
-    saveBalance(newBalance);
   };
 
   // 旅行費 手動入力（変動費・週予算と完全別管理）
@@ -340,7 +347,6 @@ export function useDashboard() {
     setTravelName('');
   };
 
-  // 旅行費削除
   const deleteTravelExpense = (id: string) => {
     const newTravel = travelExpenses.filter(t => t.id !== id);
     setTravelExpenses(newTravel);
@@ -348,14 +354,9 @@ export function useDashboard() {
   };
 
   const deleteHistory = (id: string) => {
-    const item = history.find(h => h.id === id);
-    if (!item) return;
     const newHistory = history.filter(h => h.id !== id);
-    const newBalance = balance + item.amount;
     setHistory(newHistory);
-    setBalance(newBalance);
     persistHistory(newHistory);
-    saveBalance(newBalance);
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -367,12 +368,8 @@ export function useDashboard() {
       setHistory(prev => {
         const newOnly = parsedItems.filter(n => !prev.some(o => o.id === n.id));
         if (newOnly.length === 0) { alert('⚠️ すべて登録済みです。'); return prev; }
-        const totalSpent = newOnly.reduce((s, h) => s + h.amount, 0);
-        const newBalance = balance - totalSpent;
         const newHistory = [...newOnly, ...prev];
-        setBalance(newBalance);
         persistHistory(newHistory);
-        saveBalance(newBalance);
         mineFixedCostsFromHistory(newHistory);
         alert(`🎉 新規 ${newOnly.length} 件をインポートしました！`);
         return newHistory;
@@ -382,23 +379,24 @@ export function useDashboard() {
 
   const handleRakutenUpload = () => alert('楽天カードCSVインポート機能（現在調整中）');
 
+  // ★ 週末の締め処理（繰り越し方式）
   const executeWeeklyClose = (type: 'save' | 'carryOver') => {
-    if (balance <= 0) { alert('残金がありません。'); return; }
+    if (currentWeekBalance <= 0) { alert('残金がありません。'); return; }
     if (type === 'save') {
-      const newSavings = totalSavings + balance;
+      const newSavings = totalSavings + currentWeekBalance;
       setTotalSavings(newSavings);
       saveTotalSavings(newSavings);
-      alert(`💰 ¥${balance.toLocaleString()} を貯蓄に追加！累計: ¥${newSavings.toLocaleString()}`);
+      alert(`💰 ¥${currentWeekBalance.toLocaleString()} を貯蓄に追加！累計: ¥${newSavings.toLocaleString()}`);
+      // 貯蓄に回したら繰り越し額はリセット
+      setWeeklyCarryOver(0);
+      saveWeeklyCarryOver(0);
     } else {
-      const newBalance = weeklyBudget + balance;
-      setBalance(newBalance);
-      saveBalance(newBalance);
-      alert(`🏃‍♂️ ¥${balance.toLocaleString()} を来週へ繰り越し！来週予算: ¥${newBalance.toLocaleString()}`);
-      return;
+      // 来週の予算に今週の残金を上乗せする
+      const newCarryOver = weeklyCarryOver + currentWeekBalance;
+      setWeeklyCarryOver(newCarryOver);
+      saveWeeklyCarryOver(newCarryOver);
+      alert(`🏃‍♂️ ¥${currentWeekBalance.toLocaleString()} を来週へ繰り越しました！\n来週の予算: ¥${(weeklyBudget + newCarryOver).toLocaleString()}`);
     }
-    setBalance(weeklyBudget);
-    saveBalance(weeklyBudget);
-    saveLastWeekReset(new Date().toISOString());
   };
 
   // 楽天固定費
@@ -427,15 +425,6 @@ export function useDashboard() {
     const c = fixedCosts.filter(f => f.id !== id);
     setFixedCosts(c); saveFixedCosts(c);
   };
-
-  // ---- 変動費のカテゴリをインラインで変更 ----
-const updateHistoryCategory = (id: string, newCategory: Category) => {
-  const newHistory = history.map(h =>
-    h.id === id ? { ...h, category: newCategory } : h
-  );
-  setHistory(newHistory);
-  persistHistory(newHistory);
-};
 
   const mineFixedCostsFromHistory = (all: HistoryItem[]) => {
     const groups: Record<string, string[]> = {};
@@ -472,6 +461,15 @@ const updateHistoryCategory = (id: string, newCategory: Category) => {
   const handleSetSalaryDay      = (v: number) => { setSalaryDay(v);      saveSalaryDay(v); };
   const handleSetWeeklyBudget   = (v: number) => { setWeeklyBudget(v);   saveWeeklyBudget(v); };
 
+  // 変動費のカテゴリをインラインで変更
+  const updateHistoryCategory = (id: string, newCategory: Category) => {
+    const newHistory = history.map(h =>
+      h.id === id ? { ...h, category: newCategory } : h
+    );
+    setHistory(newHistory);
+    persistHistory(newHistory);
+  };
+
   // 最新順ソート済み（変動費のみ）
   const sortedVariableHistory = useMemo(() =>
     history
@@ -487,7 +485,7 @@ const updateHistoryCategory = (id: string, newCategory: Category) => {
 
   const savingsProgress = Math.min(100, Math.round((totalSavings / targetSavings) * 100));
 
-  // 残り日数と1日予算
+  // 残り日数
   const daysLeft = useMemo(() => {
     const end = viewingWeek.end;
     const now = new Date();
@@ -495,11 +493,6 @@ const updateHistoryCategory = (id: string, newCategory: Category) => {
     const diff = Math.ceil((end.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
     return Math.max(1, diff);
   }, [viewingWeek]);
-
-  const currentWeekBalance = useMemo(() => {
-    if (weekOffset !== 0) return weeklyBudget - viewingWeekSpent;
-    return balance;
-  }, [weekOffset, balance, weeklyBudget, viewingWeekSpent]);
 
   const generatedPrompt = useMemo(() => `
 # 資産形成コンサルタントへの依頼
@@ -529,8 +522,8 @@ ${sortedVariableHistory.slice(0, 20).map(h => `- ${h.date} | ${h.name} | ¥${h.a
     state: {
       isMounted, activeTab, graphType, openSettingSection, showPromptModal,
       history, sortedVariableHistory, archivedReports,
-      balance, currentWeekBalance, totalSavings, targetSavings, savingsProgress,
-      salaryDay, weeklyBudget, fixedCosts, rakutenFixedCosts,
+      currentWeekBalance, totalSavings, targetSavings, savingsProgress,
+      salaryDay, weeklyBudget, weeklyCarryOver, fixedCosts, rakutenFixedCosts,
       monthlyIncome, variableBudget, monthlySummary,
       travelExpenses, travelTotal,
       amount, category, travelAmount, travelName,

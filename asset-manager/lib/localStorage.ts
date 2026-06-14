@@ -4,7 +4,7 @@ import { MonthlyReport } from '@/hooks/useDashboard';
 const KEYS = {
   HISTORY: 'asset_history',
   ARCHIVED: 'asset_archived_monthly',
-  BALANCE: 'asset_balance',
+  WEEKLY_CARRY_OVER: 'asset_weekly_carry_over',
   SAVINGS: 'asset_total_savings',
   TARGET: 'asset_target_savings',
   SALARY_DAY: 'asset_salary_day',
@@ -13,14 +13,14 @@ const KEYS = {
   RAKUTEN_FIXED_COSTS: 'asset_rakuten_fixed_costs',
   MONTHLY_INCOME: 'asset_monthly_income',
   VARIABLE_BUDGET: 'asset_variable_budget',
-  TRAVEL_EXPENSES: 'asset_travel_expenses',       // 今月の旅行費履歴
+  TRAVEL_EXPENSES: 'asset_travel_expenses',
   LAST_WEEK_RESET: 'asset_last_week_reset',
   LAST_RAKUTEN_CHARGE: 'asset_last_rakuten_charge',
-  LAST_TRAVEL_RESET: 'asset_last_travel_reset',   // 旅行費リセット日
+  LAST_TRAVEL_RESET: 'asset_last_travel_reset',
   SCHEMA_VERSION: 'asset_schema_version',
 } as const;
 
-const SCHEMA_VERSION = '1.2';
+const SCHEMA_VERSION = '1.3';
 const SIX_MONTHS_MS = 6 * 30 * 24 * 60 * 60 * 1000;
 
 const toDate = (dateStr: string): Date =>
@@ -69,20 +69,19 @@ export const saveHistory = (history: HistoryItem[], archives: MonthlyReport[]) =
   }
 };
 
-// 個別セーバー
-export const saveBalance         = (v: number)  => { try { localStorage.setItem(KEYS.BALANCE, String(v)); } catch(e){} };
-export const saveTotalSavings    = (v: number)  => { try { localStorage.setItem(KEYS.SAVINGS, String(v)); } catch(e){} };
-export const saveTargetSavings   = (v: number)  => { try { localStorage.setItem(KEYS.TARGET, String(v)); } catch(e){} };
-export const saveSalaryDay       = (v: number)  => { try { localStorage.setItem(KEYS.SALARY_DAY, String(v)); } catch(e){} };
-export const saveWeeklyBudget    = (v: number)  => { try { localStorage.setItem(KEYS.WEEKLY_BUDGET, String(v)); } catch(e){} };
-export const saveFixedCosts      = (v: unknown) => { try { localStorage.setItem(KEYS.FIXED_COSTS, JSON.stringify(v)); } catch(e){} };
-export const saveRakutenFixedCosts = (v: unknown) => { try { localStorage.setItem(KEYS.RAKUTEN_FIXED_COSTS, JSON.stringify(v)); } catch(e){} };
-export const saveMonthlyIncome   = (v: number)  => { try { localStorage.setItem(KEYS.MONTHLY_INCOME, String(v)); } catch(e){} };
-export const saveVariableBudget  = (v: number)  => { try { localStorage.setItem(KEYS.VARIABLE_BUDGET, String(v)); } catch(e){} };
-export const saveTravelExpenses  = (v: unknown) => { try { localStorage.setItem(KEYS.TRAVEL_EXPENSES, JSON.stringify(v)); } catch(e){} };
-export const saveLastWeekReset   = (v: string)  => { try { localStorage.setItem(KEYS.LAST_WEEK_RESET, v); } catch(e){} };
-export const saveLastRakutenCharge = (v: string) => { try { localStorage.setItem(KEYS.LAST_RAKUTEN_CHARGE, v); } catch(e){} };
-export const saveLastTravelReset = (v: string)  => { try { localStorage.setItem(KEYS.LAST_TRAVEL_RESET, v); } catch(e){} };
+export const saveWeeklyCarryOver = (v: number) => { try { localStorage.setItem(KEYS.WEEKLY_CARRY_OVER, String(v)); } catch (e) { console.error(e); } };
+export const saveTotalSavings    = (v: number) => { try { localStorage.setItem(KEYS.SAVINGS, String(v)); } catch (e) { console.error(e); } };
+export const saveTargetSavings   = (v: number) => { try { localStorage.setItem(KEYS.TARGET, String(v)); } catch (e) { console.error(e); } };
+export const saveSalaryDay       = (v: number) => { try { localStorage.setItem(KEYS.SALARY_DAY, String(v)); } catch (e) { console.error(e); } };
+export const saveWeeklyBudget    = (v: number) => { try { localStorage.setItem(KEYS.WEEKLY_BUDGET, String(v)); } catch (e) { console.error(e); } };
+export const saveFixedCosts      = (v: unknown) => { try { localStorage.setItem(KEYS.FIXED_COSTS, JSON.stringify(v)); } catch (e) { console.error(e); } };
+export const saveRakutenFixedCosts = (v: unknown) => { try { localStorage.setItem(KEYS.RAKUTEN_FIXED_COSTS, JSON.stringify(v)); } catch (e) { console.error(e); } };
+export const saveMonthlyIncome   = (v: number) => { try { localStorage.setItem(KEYS.MONTHLY_INCOME, String(v)); } catch (e) { console.error(e); } };
+export const saveVariableBudget  = (v: number) => { try { localStorage.setItem(KEYS.VARIABLE_BUDGET, String(v)); } catch (e) { console.error(e); } };
+export const saveTravelExpenses  = (v: unknown) => { try { localStorage.setItem(KEYS.TRAVEL_EXPENSES, JSON.stringify(v)); } catch (e) { console.error(e); } };
+export const saveLastWeekReset   = (v: string) => { try { localStorage.setItem(KEYS.LAST_WEEK_RESET, v); } catch (e) { console.error(e); } };
+export const saveLastRakutenCharge = (v: string) => { try { localStorage.setItem(KEYS.LAST_RAKUTEN_CHARGE, v); } catch (e) { console.error(e); } };
+export const saveLastTravelReset = (v: string) => { try { localStorage.setItem(KEYS.LAST_TRAVEL_RESET, v); } catch (e) { console.error(e); } };
 
 export const loadAll = () => {
   try {
@@ -91,7 +90,7 @@ export const loadAll = () => {
     return {
       history:           JSON.parse(localStorage.getItem(KEYS.HISTORY)   || '[]') as HistoryItem[],
       archives:          JSON.parse(localStorage.getItem(KEYS.ARCHIVED)  || '[]') as MonthlyReport[],
-      balance:           Number(localStorage.getItem(KEYS.BALANCE)       ?? 15000),
+      weeklyCarryOver:   Number(localStorage.getItem(KEYS.WEEKLY_CARRY_OVER) ?? 0),
       totalSavings:      Number(localStorage.getItem(KEYS.SAVINGS)       ?? 0),
       targetSavings:     Number(localStorage.getItem(KEYS.TARGET)        ?? 2000000),
       salaryDay:         Number(localStorage.getItem(KEYS.SALARY_DAY)    ?? 25),
