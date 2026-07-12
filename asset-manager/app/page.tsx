@@ -611,6 +611,7 @@ export default function Dashboard() {
                 { key: 'travel',  icon: '✈️', label: '旅行費管理' },
                 { key: 'mining',  icon: '🧠', label: '変動費パターン' },
                 { key: 'target',  icon: '🎯', label: '基本設定' },
+                { key: 'rules',   icon: '🏷️', label: 'カテゴリ自動分類' },
               ].map(item => (
                 <button key={item.key}
                   onClick={() => actions.setOpenSettingSection(state.openSettingSection === item.key as any ? null : item.key as any)}
@@ -817,6 +818,7 @@ export default function Dashboard() {
                 )}
               </div>
             )}
+            
 
             {/* 基本設定 */}
             {state.openSettingSection === 'target' && (
@@ -850,9 +852,100 @@ export default function Dashboard() {
                 </div>
               </div>
             )}
+
+            {/* カテゴリ自動分類ルール */}
+{state.openSettingSection === 'rules' && (
+  <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 space-y-5">
+    <div className="border-b pb-3 flex justify-between items-center">
+      <h2 className="text-base font-black text-slate-800">🏷️ カテゴリ自動分類ルール</h2>
+      <span className="text-xs bg-blue-50 text-blue-500 px-2 py-1 rounded-lg font-bold">
+        {state.categoryRules.length}件のルール
+      </span>
+    </div>
+
+    <p className="text-xs text-slate-500 bg-blue-50 p-3 rounded-xl border border-blue-100 leading-relaxed">
+      💡 CSVインポート時に店名を見て自動でカテゴリを判定します。上のルールが優先されます。
+    </p>
+
+    {/* 新しいルールの追加 */}
+    <div className="flex gap-3 flex-wrap bg-slate-50 p-3 rounded-xl">
+      <input
+        type="text"
+        value={state.newRuleKeyword}
+        onChange={e => actions.setNewRuleKeyword(e.target.value)}
+        placeholder="キーワード（例：スタバ、薬局）"
+        className="border p-2.5 rounded-xl flex-1 min-w-36 text-sm focus:outline-none focus:border-blue-400"
+      />
+      <select
+        value={state.newRuleCategory}
+        onChange={e => actions.setNewRuleCategory(e.target.value as Category)}
+        className="border p-2.5 rounded-xl text-sm focus:outline-none"
+      >
+        {state.CATEGORIES.filter(c => c !== '旅行費').map(c => (
+          <option key={c} value={c}>{c}</option>
+        ))}
+      </select>
+      <button
+        onClick={actions.addCategoryRule}
+        className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-bold text-sm transition-colors"
+      >
+        追加
+      </button>
+    </div>
+
+    {/* 一括操作ボタン */}
+    <div className="flex gap-3">
+      <button
+        onClick={actions.applyRulesToAllHistory}
+        className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white py-2.5 rounded-xl font-bold text-sm transition-colors"
+      >
+        ✅ 全明細に一括再適用
+      </button>
+      <button
+        onClick={actions.resetCategoryRules}
+        className="bg-slate-100 hover:bg-slate-200 text-slate-600 px-4 py-2.5 rounded-xl font-bold text-sm transition-colors"
+      >
+        🔄 デフォルトに戻す
+      </button>
+    </div>
+
+    {/* ルール一覧 */}
+    <div className="space-y-1.5 max-h-96 overflow-y-auto">
+      {state.categoryRules.map((rule, index) => (
+        <div key={rule.id}
+          className="flex items-center justify-between p-3 rounded-xl border border-slate-100 bg-slate-50 hover:bg-white transition-colors group"
+        >
+          <div className="flex items-center gap-3 min-w-0">
+            <span className="text-[10px] text-slate-300 font-mono w-5 shrink-0">{index + 1}</span>
+            <span className="font-bold text-slate-700 truncate">{rule.keyword}</span>
+            <span className="text-slate-300">→</span>
+            <span className={`text-xs font-bold px-2 py-0.5 rounded-lg shrink-0 ${
+              rule.category === '食費' ? 'bg-blue-50 text-blue-600' :
+              rule.category === '日用品' ? 'bg-green-50 text-green-600' :
+              rule.category === '交通費' ? 'bg-yellow-50 text-yellow-600' :
+              rule.category === '趣味・娯楽' ? 'bg-purple-50 text-purple-600' :
+              rule.category === '美容・衣服' ? 'bg-pink-50 text-pink-600' :
+              rule.category === '交際費' ? 'bg-orange-50 text-orange-600' :
+              'bg-slate-100 text-slate-600'
+            }`}>
+              {rule.category}
+            </span>
+          </div>
+          <button
+            onClick={() => actions.removeCategoryRule(rule.id)}
+            className="text-slate-200 hover:text-red-500 font-bold transition-colors ml-2 shrink-0 opacity-0 group-hover:opacity-100"
+          >
+            ✕
+          </button>
+        </div>
+      ))}
+    </div>
+  </div>
+)}
           </div>
         </div>
       )}
+
 
       {/* AIプロンプトモーダル */}
       {state.showPromptModal && (
@@ -873,7 +966,6 @@ export default function Dashboard() {
           </div>
         </div>
       )}
-
     </div>
   );
 }

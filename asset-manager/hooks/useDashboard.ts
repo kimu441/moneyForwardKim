@@ -9,6 +9,14 @@ import {
   saveLastTravelReset, saveWeeklyCarryOver, getStorageUsageKB,
 } from '@/lib/localStorage';
 
+import {
+  CategoryRule,
+  DEFAULT_CATEGORY_RULES,
+  detectCategory,
+  saveCategoryRules,
+  loadCategoryRules,
+} from '@/lib/categoryRules';
+
 export interface FixedCostItem {
   id: string;
   name: string;
@@ -81,7 +89,7 @@ export function useDashboard() {
   const [isMounted,          setIsMounted]          = useState(false);
   const [activeTab,          setActiveTab]          = useState<'dashboard'|'analytics'|'settings'>('dashboard');
   const [graphType,          setGraphType]          = useState<'week'|'monthly'>('week');
-  const [openSettingSection, setOpenSettingSection] = useState<'mining'|'target'|'fixed'|'rakuten'|'income'|'travel'|null>(null);
+  const [openSettingSection, setOpenSettingSection] = useState<'mining'|'target'|'fixed'|'rakuten'|'income'|'travel'|'rules'|null>(null);
   const [showPromptModal,    setShowPromptModal]    = useState(false);
   const [storageUsageKB,     setStorageUsageKB]     = useState(0);
   // 週ナビ: 0=今週, -1=先週, 1=来週
@@ -113,10 +121,14 @@ export function useDashboard() {
   const [newRakutenName,     setNewRakutenName]     = useState('');
   const [newRakutenAmount,   setNewRakutenAmount]   = useState('');
   const [newRakutenCategory, setNewRakutenCategory] = useState<Category>('その他');
+  const [categoryRules, setCategoryRules] = useState<CategoryRule[]>(DEFAULT_CATEGORY_RULES);
+  const [newRuleKeyword, setNewRuleKeyword] = useState('');
+  const [newRuleCategory, setNewRuleCategory] = useState<Category>('食費');
 
   // ---- 初期化 ----
   useEffect(() => {
     const saved = loadAll();
+    setCategoryRules(loadCategoryRules());
     if (saved) {
       setHistory(saved.history);
       setArchivedReports(saved.archives);
@@ -360,22 +372,28 @@ export function useDashboard() {
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    try {
-      const parsedItems = await parsePayPayCSV(file);
-      if (parsedItems.length === 0) { alert('データが見つかりません。'); return; }
-      setHistory(prev => {
-        const newOnly = parsedItems.filter(n => !prev.some(o => o.id === n.id));
-        if (newOnly.length === 0) { alert('⚠️ すべて登録済みです。'); return prev; }
-        const newHistory = [...newOnly, ...prev];
-        persistHistory(newHistory);
-        mineFixedCostsFromHistory(newHistory);
-        alert(`🎉 新規 ${newOnly.length} 件をインポートしました！`);
-        return newHistory;
-      });
-    } catch { alert('CSVのパースに失敗しました。'); }
-  };
+  const file = e.target.files?.[0];
+  if (!file) return;
+  try {
+    const parsedItems = await parsePayPayCSV(file);
+    if (parsedItems.length === 0) { alert('データが見つかりません。'); return; }
+    setHistory(prev => {
+      const newOnly = parsedItems
+        .filter(n => !prev.some(o => o.id === n.id))
+        .map(item => ({
+          ...item,
+          // ★ 自動分類を適用
+          category: detectCategory(item.name, categoryRules),
+        }));
+      if (newOnly.length === 0) { alert('⚠️ すべて登録済みです。'); return prev; }
+      const newHistory = [...newOnly, ...prev];
+      persistHistory(newHistory);
+      mineFixedCostsFromHistory(newHistory);
+      alert(`🎉 新規 ${newOnly.length} 件をインポートしました！`);
+      return newHistory;
+    });
+  } catch { alert('CSVのパースに失敗しました。'); }
+};
 
   const handleRakutenUpload = () => alert('楽天カードCSVインポート機能（現在調整中）');
 
@@ -485,6 +503,46 @@ export function useDashboard() {
 
   const savingsProgress = Math.min(100, Math.round((totalSavings / targetSavings) * 100));
 
+  // カテゴリルールの追加
+const addCategoryRule = () => {
+  if (!newRuleKeyword.trim()) return;
+  const newRule: CategoryRule = {
+    id: `rule-${Date.now()}`,
+    keyword: newRuleKeyword.trim(),
+    category: newRuleCategory,
+  };
+  const newRules = [...categoryRules, newRule];
+  setCategoryRules(newRules);
+  saveCategoryRules(newRules);
+  setNewRuleKeyword('');
+};
+
+// カテゴリルールの削除
+const removeCategoryRule = (id: string) => {
+  const newRules = categoryRules.filter(r => r.id !== id);
+  setCategoryRules(newRules);
+  saveCategoryRules(newRules);
+};
+
+// ★ 既存の全履歴にルールを一括再適用
+const applyRulesToAllHistory = () => {
+  if (!confirm('全ての明細のカテゴリをルールに基づいて再分類します。手動で変更したカテゴリも上書きされます。よろしいですか？')) return;
+  const newHistory = history.map(h => {
+    if (h.id.startsWith('rakuten-monthly-')) return h; // 固定費は除外
+    return { ...h, category: detectCategory(h.name, categoryRules) };
+  });
+  setHistory(newHistory);
+  persistHistory(newHistory);
+  alert('✅ 全明細のカテゴリを再分類しました！');
+};
+
+// デフォルトルールに戻す
+const resetCategoryRules = () => {
+  if (!confirm('カテゴリルールをデフォルトに戻しますか？')) return;
+  setCategoryRules(DEFAULT_CATEGORY_RULES);
+  saveCategoryRules(DEFAULT_CATEGORY_RULES);
+};
+
   // 残り日数
   const daysLeft = useMemo(() => {
     const end = viewingWeek.end;
@@ -532,6 +590,7 @@ ${sortedVariableHistory.slice(0, 20).map(h => `- ${h.date} | ${h.name} | ¥${h.a
       CATEGORIES, savingsRate, storageUsageKB,
       weekOffset, viewingWeek, viewingWeekVariable, viewingWeekSpent,
       nextWeekBalance, daysLeft, weeklyAnalytics,
+      categoryRules, newRuleKeyword, newRuleCategory,
     },
     actions: {
       setActiveTab, setGraphType, setOpenSettingSection, setShowPromptModal,
@@ -549,6 +608,9 @@ ${sortedVariableHistory.slice(0, 20).map(h => `- ${h.date} | ${h.name} | ¥${h.a
       executeWeeklyClose, addFixedCost, removeFixedCost,
       addRakutenFixedCost, removeRakutenFixedCost, acceptAsFixedCost,
       updateHistoryCategory,
+       setNewRuleKeyword, setNewRuleCategory,
+  addCategoryRule, removeCategoryRule,
+  applyRulesToAllHistory, resetCategoryRules,
     },
   };
 }
