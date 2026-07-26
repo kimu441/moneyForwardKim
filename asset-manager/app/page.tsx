@@ -39,11 +39,12 @@ const COLORS = ['#3b82f6','#10b981','#f59e0b','#ec4899','#8b5cf6','#06b6d4','#f9
 export default function Dashboard() {
   const { state, actions } = useDashboard();
 
-  // カテゴリ編集中のID管理
+  // カテゴリ編集中のID管理z
   const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
 
-  const dailyLimit = Math.max(1, Math.round(state.currentWeekBalance / Math.max(1, state.daysLeft)));
-  const isDanger = state.currentWeekBalance <= 0 || dailyLimit < 1000;
+const isOver = state.weekOffset === 0 && state.currentWeekBalance < 0;
+const dailyLimit = isOver ? 0 : Math.max(1, Math.round(state.currentWeekBalance / Math.max(1, state.daysLeft)));
+const isDanger = isOver || (state.weekOffset === 0 && dailyLimit < 1000);
 
   const weekCategoryData = useMemo(() =>
     state.CATEGORIES.filter(c => c !== '旅行費').map(cat => ({
@@ -195,43 +196,71 @@ export default function Dashboard() {
               </div>
 
               {/* 残金カード */}
-              <div className={`p-6 rounded-2xl text-white shadow-md border bg-gradient-to-br ${
-                state.weekOffset !== 0 ? 'from-slate-500 to-slate-700 border-slate-400' :
-                isDanger ? 'from-rose-500 to-red-600 border-red-400' : 'from-blue-500 to-indigo-600 border-blue-400'
-              }`}>
-                <div className="grid grid-cols-3 gap-4 items-center">
-                  <div>
-                    <p className="text-xs opacity-80 font-bold">
-                      {state.weekOffset === -1 ? '先週の支出合計' : state.weekOffset === 0 ? '今週の残金' : '来週の予測残金'}
-                    </p>
-                    <h2 className="text-3xl font-black mt-1">
-                      {state.weekOffset === -1
-                        ? `¥${state.viewingWeekSpent.toLocaleString()}`
-                        : `¥${state.currentWeekBalance.toLocaleString()}`}
-                    </h2>
-                    <p className="text-xs opacity-60 mt-0.5">週予算 ¥{state.weeklyBudget.toLocaleString()}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs opacity-80 font-bold">
-                      {state.weekOffset === 0 ? '1日あたりの上限' : '週の支出合計'}
-                    </p>
-                    <p className="text-2xl font-extrabold mt-1">
-                      {state.weekOffset === 0
-                        ? `¥${dailyLimit.toLocaleString()}`
-                        : `¥${state.viewingWeekSpent.toLocaleString()}`}
-                    </p>
-                    {state.weekOffset === 0 && <p className="text-xs opacity-60">残り{state.daysLeft}日</p>}
-                  </div>
-                  <div className="text-center bg-white/15 p-3 rounded-xl text-xs font-bold">
-                    {state.weekOffset === -1
-                      ? `予算比 ${Math.round((state.viewingWeekSpent / state.weeklyBudget) * 100)}%`
-                      : state.weekOffset === 0
-                        ? (state.currentWeekBalance <= 0 ? '⚠️ 予算終了！' : dailyLimit < 1000 ? '🔴 節約を！' : '🟢 計画通り')
-                        : '来週の予測値'}
-                  </div>
-                </div>
-              </div>
+<div className={`p-6 rounded-2xl text-white shadow-md border bg-gradient-to-br ${
+  state.weekOffset !== 0 ? 'from-slate-500 to-slate-700 border-slate-400' :
+  isDanger ? 'from-rose-500 to-red-600 border-red-400' : 'from-blue-500 to-indigo-600 border-blue-400'
+}`}>
+  {(() => {
+    const overAmount = isOver ? Math.abs(state.currentWeekBalance) : 0;
+    const displayBalance = isOver ? 0 : state.currentWeekBalance;
 
+    return (
+      <div className="grid grid-cols-3 gap-4 items-center">
+
+        {/* 今週の残金 */}
+        <div>
+          <p className="text-xs opacity-80 font-bold">
+            {state.weekOffset === -1 ? '先週の支出合計' : state.weekOffset === 0 ? '今週の残金' : '来週の予測残金'}
+          </p>
+          <h2 className="text-3xl font-black mt-1">
+            {state.weekOffset === -1
+              ? `¥${state.viewingWeekSpent.toLocaleString()}`
+              : `¥${displayBalance.toLocaleString()}`}
+          </h2>
+          <p className="text-xs opacity-60 mt-0.5">
+            週予算 ¥{state.weeklyBudget.toLocaleString()}
+            {state.weeklyCarryOver > 0 && (
+              <span className="ml-1">+¥{state.weeklyCarryOver.toLocaleString()}（繰越）</span>
+            )}
+          </p>
+        </div>
+
+        {/* 1日あたりの上限 */}
+        <div>
+          <p className="text-xs opacity-80 font-bold">
+            {state.weekOffset === 0 ? '1日あたりの上限' : '週の支出合計'}
+          </p>
+          <p className="text-2xl font-extrabold mt-1">
+            {state.weekOffset === 0
+              ? `¥${dailyLimit.toLocaleString()}`
+              : `¥${state.viewingWeekSpent.toLocaleString()}`}
+          </p>
+          {state.weekOffset === 0 && (
+            <p className="text-xs opacity-60">残り{state.daysLeft}日</p>
+          )}
+        </div>
+
+        {/* 3枚目: 超過時は超過金額、通常時はステータス */}
+        {isOver ? (
+          <div className="text-center bg-white/20 p-3 rounded-xl">
+            <p className="text-xs font-bold opacity-80">⚠️ 超過金額</p>
+            <p className="text-2xl font-black mt-1">¥{overAmount.toLocaleString()}</p>
+            <p className="text-xs opacity-70 mt-0.5">来週の予算から引かれます</p>
+          </div>
+        ) : (
+          <div className="text-center bg-white/15 p-3 rounded-xl text-xs font-bold">
+            {state.weekOffset === -1
+              ? `予算比 ${Math.round((state.viewingWeekSpent / state.weeklyBudget) * 100)}%`
+              : state.weekOffset === 0
+                ? (dailyLimit < 1000 ? '🔴 節約を！' : '🟢 計画通り')
+                : '来週の予測値'}
+          </div>
+        )}
+
+      </div>
+    );
+  })()}
+</div>
               {/* グラフ */}
               <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 space-y-4">
                 <div className="flex justify-between items-center border-b pb-3">
@@ -671,7 +700,7 @@ export default function Dashboard() {
                   <div>
                     <label className="font-bold text-slate-500 block mb-1.5 text-xs">週の変動費予算</label>
                     <input type="number" value={state.weeklyBudget || ''}
-                      onChange={e => actions.setWeeklyBudget(parseInt(e.target.value) || 15000)}
+                      onChange={e => actions.setWeeklyBudget(parseInt(e.target.value) || 0)}
                       className="border p-3 rounded-xl w-full font-semibold focus:border-blue-500 focus:outline-none"
                       placeholder="例: 15000" />
                     <p className="text-[10px] text-slate-400 mt-1">毎週月曜にこの金額にリセット</p>
