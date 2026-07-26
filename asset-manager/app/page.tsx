@@ -78,7 +78,7 @@ const isDanger = isOver || (state.weekOffset === 0 && dailyLimit < 1000);
         <div>
           <h1 className="text-xl font-extrabold text-slate-900 flex items-center gap-2">
             🛡️ 資産形成プロ
-            <span className="text-xs bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded-md font-bold">v6.1</span>
+            <span className="text-xs bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded-md font-bold">v6.2</span>
           </h1>
           <p className="text-xs text-slate-400 mt-0.5">
             {state.currentCycle.label} ／ 給料日: {state.salaryDay}日
