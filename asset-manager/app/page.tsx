@@ -41,6 +41,8 @@ export default function Dashboard() {
 
   // カテゴリ編集中のID管理z
   const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
+  const [selectedMonthlyCat, setSelectedMonthlyCat] = useState<string | null>(null); // ★追加
+
 
 const isOver = state.weekOffset === 0 && state.currentWeekBalance < 0;
 const dailyLimit = isOver ? 0 : Math.max(1, Math.round(state.currentWeekBalance / Math.max(1, state.daysLeft)));
@@ -78,7 +80,7 @@ const isDanger = isOver || (state.weekOffset === 0 && dailyLimit < 1000);
         <div>
           <h1 className="text-xl font-extrabold text-slate-900 flex items-center gap-2">
             🛡️ 資産形成プロ
-            <span className="text-xs bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded-md font-bold">v6.2</span>
+            <span className="text-xs bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded-md font-bold">v6.3</span>
           </h1>
           <p className="text-xs text-slate-400 mt-0.5">
             {state.currentCycle.label} ／ 給料日: {state.salaryDay}日
@@ -599,7 +601,7 @@ const isDanger = isOver || (state.weekOffset === 0 && dailyLimit < 1000);
               </div>
             </div>
 
-            {/* 週次消化率ライン */}
+          {/* 週次消化率ライン */}
             <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
               <h3 className="text-sm font-black text-slate-700 mb-1">📈 週次予算消化率の推移</h3>
               <p className="text-xs text-slate-400 mb-4">100%超 = 予算オーバー</p>
@@ -620,10 +622,157 @@ const isDanger = isOver || (state.weekOffset === 0 && dailyLimit < 1000);
               </div>
             </div>
 
+            {/* ★ 月別支出内訳エリア（ここから追加）*/}
+            <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
+              {/* ヘッダー + ナビゲーション */}
+              <div className="flex justify-between items-center border-b pb-3">
+                <div>
+                  <h3 className="text-sm font-black text-slate-700">📅 月別支出内訳</h3>
+                  <p className="text-[10px] text-slate-400 mt-0.5">変動費のみ・旅行費除く / 支出割合上位6カテゴリ</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => actions.setMonthlyNavOffset(state.monthlyNavOffset - 1)}
+                    className="text-slate-400 hover:text-blue-600 font-black px-2 py-1 rounded-lg hover:bg-blue-50 transition-colors text-sm"
+                  >
+                    ← 過去
+                  </button>
+                  <span className="text-xs font-bold text-slate-400 text-center w-28">
+                    {state.monthlyBreakdown[0]?.label}〜{state.monthlyBreakdown[5]?.label}
+                  </span>
+                  <button
+                    onClick={() => actions.setMonthlyNavOffset(Math.min(0, state.monthlyNavOffset + 1))}
+                    disabled={state.monthlyNavOffset >= 0}
+                    className={`font-black px-2 py-1 rounded-lg transition-colors text-sm ${
+                      state.monthlyNavOffset >= 0
+                        ? 'text-slate-200 cursor-not-allowed'
+                        : 'text-slate-400 hover:text-blue-600 hover:bg-blue-50'
+                    }`}
+                  >
+                    最新 →
+                  </button>
+                </div>
+              </div>
+
+              {/* カテゴリ切り替えタブ */}
+              <div className="flex flex-wrap gap-1.5">
+                <button
+                  onClick={() => setSelectedMonthlyCat(null)}
+                  className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${
+                    selectedMonthlyCat === null
+                      ? 'bg-slate-800 text-white'
+                      : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                  }`}
+                >
+                  全体
+                </button>
+                {state.topCategories.map((cat, i) => (
+                  <button
+                    key={cat}
+                    onClick={() => setSelectedMonthlyCat(selectedMonthlyCat === cat ? null : cat)}
+                    className={`px-3 py-1 rounded-lg text-xs font-bold transition-all border ${
+                      selectedMonthlyCat === cat
+                        ? 'text-white border-transparent'
+                        : 'bg-slate-100 text-slate-500 hover:bg-slate-200 border-transparent'
+                    }`}
+                    style={selectedMonthlyCat === cat ? { backgroundColor: COLORS[i % COLORS.length] } : {}}
+                  >
+                    {cat}
+                  </button>
+                ))}
+              </div>
+
+              {/* グラフ */}
+              <div className="h-64">
+                {state.isMounted && (
+                  <ResponsiveContainer width="100%" height="100%">
+                    {selectedMonthlyCat === null ? (
+                      <BarChart
+                        data={state.monthlyBreakdown.map(m => ({
+                          label: m.label,
+                          ...Object.fromEntries(
+                            state.topCategories.map(cat => [cat, m.byCategory[cat] || 0])
+                          ),
+                        }))}
+                        margin={{ top: 12, right: 8, left: 8, bottom: 0 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                        <XAxis dataKey="label" tick={{ fontSize: 9, fontWeight: 'bold' }} />
+                        <YAxis tickFormatter={formatYen} tick={{ fontSize: 9 }} width={75} />
+                        <Tooltip content={<BarTip />} />
+                        <Legend formatter={v => <span className="text-xs font-bold text-slate-600">{v}</span>} />
+                        {state.topCategories.map((cat, i) => (
+                          <Bar
+                            key={cat}
+                            dataKey={cat}
+                            name={cat}
+                            stackId="a"
+                            fill={COLORS[i % COLORS.length]}
+                            radius={i === state.topCategories.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
+                          />
+                        ))}
+                      </BarChart>
+                    ) : (
+                      <BarChart
+                        data={state.monthlyBreakdown.map(m => ({
+                          label: m.label,
+                          金額: m.byCategory[selectedMonthlyCat] || 0,
+                        }))}
+                        margin={{ top: 16, right: 8, left: 8, bottom: 0 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                        <XAxis dataKey="label" tick={{ fontSize: 9, fontWeight: 'bold' }} />
+                        <YAxis tickFormatter={formatYen} tick={{ fontSize: 9 }} width={75} />
+                        <Tooltip content={<BarTip />} />
+                        <Bar
+                          dataKey="金額"
+                          name={selectedMonthlyCat}
+                          fill={COLORS[state.topCategories.indexOf(selectedMonthlyCat) % COLORS.length]}
+                          radius={[4, 4, 0, 0]}
+                        >
+                          <LabelList
+                            dataKey="金額"
+                            position="top"
+                            formatter={(v: any) => {
+                              const n = parseFloat(String(v));
+                              return isNaN(n) || n === 0 ? '' : `¥${(n / 10000).toFixed(1)}万`;
+                            }}
+                            style={{ fontSize: 9, fontWeight: 'bold', fill: '#64748b' }}
+                          />
+                        </Bar>
+                      </BarChart>
+                    )}
+                  </ResponsiveContainer>
+                )}
+              </div>
+
+              {/* 月別合計テーブル */}
+              <div className="grid grid-cols-6 gap-2 border-t pt-3">
+                {state.monthlyBreakdown.map((m, i) => (
+                  <div key={i} className="text-center">
+                    <p className="text-[9px] text-slate-400 font-bold">
+                      {m.label.slice(5)}月
+                    </p>
+                    <p className="text-xs font-black text-slate-700 mt-0.5">
+                      ¥{(m.total / 10000).toFixed(1)}万
+                    </p>
+                    {selectedMonthlyCat && (m.byCategory[selectedMonthlyCat] || 0) > 0 && (
+                      <p
+                        className="text-[9px] font-bold mt-0.5"
+                        style={{ color: COLORS[state.topCategories.indexOf(selectedMonthlyCat) % COLORS.length] }}
+                      >
+                        ¥{((m.byCategory[selectedMonthlyCat] || 0) / 10000).toFixed(1)}万
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+            {/* ★ 月別支出内訳エリア（ここまで）*/}
+
           </div>
         </div>
       )}
-
       {/* ===== タブ3: 設定（Mac向け2カラムレイアウト）===== */}
       {state.activeTab === 'settings' && (
         <div className="grid grid-cols-1 md:grid-cols-4 gap-5">

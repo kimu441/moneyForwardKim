@@ -17,6 +17,11 @@ import {
   loadCategoryRules,
 } from '@/lib/categoryRules';
 
+import {
+  BASE_CATEGORIES, MAX_CUSTOM_TAGS,
+  saveCustomTags, loadCustomTags, getAllCategories,
+} from '@/lib/customTags';
+
 export interface FixedCostItem {
   id: string;
   name: string;
@@ -80,10 +85,12 @@ const DEFAULT_RAKUTEN_FIXED: RakutenFixedCostItem[] = [
 ];
 
 export function useDashboard() {
-  const CATEGORIES: Category[] = [
-    '食費', '日用品', '交通費', '旅行費', '株',
-    '美容・衣服', '交際費', '趣味・娯楽', '不明', 'その他',
-  ];
+  const [customTags, setCustomTags] = useState<string[]>([]);
+  const [newCustomTag, setNewCustomTag] = useState('');
+  const CATEGORIES = useMemo(
+  () => getAllCategories(customTags) as Category[],
+  [customTags]
+);
 
   // ---- UI State ----
   const [isMounted,          setIsMounted]          = useState(false);
@@ -149,6 +156,7 @@ export function useDashboard() {
     }
     setStorageUsageKB(getStorageUsageKB());
     setIsMounted(true);
+    setCustomTags(loadCustomTags());
   }, []);
 
   // ---- 週次自動リセット ----
@@ -517,6 +525,80 @@ const addCategoryRule = () => {
   setNewRuleKeyword('');
 };
 
+const addCustomTag = () => {
+  const tag = newCustomTag.trim();
+  if (!tag) return;
+  if (customTags.length >= MAX_CUSTOM_TAGS) {
+    alert(`カスタムタグは最大${MAX_CUSTOM_TAGS}個までです。`);
+    return;
+  }
+  if (BASE_CATEGORIES.includes(tag as Category) || customTags.includes(tag)) {
+    alert('同じ名前のタグが既に存在します。');
+    return;
+  }
+  const newTags = [...customTags, tag];
+  setCustomTags(newTags);
+  saveCustomTags(newTags);
+  setNewCustomTag('');
+};
+
+const removeCustomTag = (tag: string) => {
+  const newTags = customTags.filter(t => t !== tag);
+  setCustomTags(newTags);
+  saveCustomTags(newTags);
+};
+
+// 月別支出データ（ナビゲーション対応・直近6ヶ月 + オフセット）
+const [monthlyNavOffset, setMonthlyNavOffset] = useState(0); // 0=最新, -1=さらに過去へ
+
+const monthlyBreakdown = useMemo(() => {
+  // 表示する6ヶ月を計算（offsetで過去に遡れる）
+  const months: { key: string; label: string }[] = [];
+  const now = new Date();
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i + monthlyNavOffset * 6, 1);
+    const key = `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const label = `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}`;
+    months.push({ key, label });
+  }
+
+  // 変動費のみ（楽天固定費・旅行費除外）で月別・カテゴリ別に集計
+  const result = months.map(({ key, label }) => {
+    const monthHistory = history.filter(h => {
+      if (h.id.startsWith('rakuten-monthly-')) return false;
+      if (h.category === '旅行費') return false;
+      return h.date.startsWith(key);
+    });
+
+    const total = monthHistory.reduce((s, h) => s + h.amount, 0);
+
+    // カテゴリ別集計
+    const byCategory: Record<string, number> = {};
+    CATEGORIES.filter(c => c !== '旅行費').forEach(cat => {
+      const sum = monthHistory.filter(h => h.category === cat).reduce((s, h) => s + h.amount, 0);
+      if (sum > 0) byCategory[cat] = sum;
+    });
+
+    return { label, total, byCategory };
+  });
+
+  return result;
+}, [history, CATEGORIES, monthlyNavOffset]);
+
+// 月別支出で割合の高いカテゴリTOP6を計算
+const topCategories = useMemo(() => {
+  const totals: Record<string, number> = {};
+  monthlyBreakdown.forEach(m => {
+    Object.entries(m.byCategory).forEach(([cat, amt]) => {
+      totals[cat] = (totals[cat] || 0) + amt;
+    });
+  });
+  return Object.entries(totals)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6)
+    .map(([cat]) => cat);
+}, [monthlyBreakdown]);
+
 // カテゴリルールの削除
 const removeCategoryRule = (id: string) => {
   const newRules = categoryRules.filter(r => r.id !== id);
@@ -591,6 +673,8 @@ ${sortedVariableHistory.slice(0, 20).map(h => `- ${h.date} | ${h.name} | ¥${h.a
       weekOffset, viewingWeek, viewingWeekVariable, viewingWeekSpent,
       nextWeekBalance, daysLeft, weeklyAnalytics,
       categoryRules, newRuleKeyword, newRuleCategory,
+       customTags, newCustomTag,
+  monthlyBreakdown, topCategories, monthlyNavOffset,
     },
     actions: {
       setActiveTab, setGraphType, setOpenSettingSection, setShowPromptModal,
@@ -611,6 +695,9 @@ ${sortedVariableHistory.slice(0, 20).map(h => `- ${h.date} | ${h.name} | ¥${h.a
        setNewRuleKeyword, setNewRuleCategory,
   addCategoryRule, removeCategoryRule,
   applyRulesToAllHistory, resetCategoryRules,
+   setNewCustomTag,
+  addCustomTag, removeCustomTag,
+  setMonthlyNavOffset,
     },
   };
 }
