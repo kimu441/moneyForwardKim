@@ -790,6 +790,7 @@ const isDanger = isOver || (state.weekOffset === 0 && dailyLimit < 1000);
                 { key: 'mining',  icon: '🧠', label: '変動費パターン' },
                 { key: 'target',  icon: '🎯', label: '基本設定' },
                 { key: 'rules',   icon: '🏷️', label: 'カテゴリ自動分類' },
+                { key: 'customtags', icon: '➕', label: 'カテゴリ項目の追加' },
               ].map(item => (
                 <button key={item.key}
                   onClick={() => actions.setOpenSettingSection(state.openSettingSection === item.key as any ? null : item.key as any)}
@@ -1120,6 +1121,87 @@ const isDanger = isOver || (state.weekOffset === 0 && dailyLimit < 1000);
     </div>
   </div>
 )}
+
+{/* ★ カテゴリ項目の追加（カスタムタグ管理）*/}
+            {state.openSettingSection === 'customtags' && (
+              <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 space-y-5">
+                <div className="border-b pb-3 flex justify-between items-center">
+                  <h2 className="text-base font-black text-slate-800">➕ カテゴリ項目の追加</h2>
+                  <span className="text-xs bg-slate-100 text-slate-500 px-2 py-1 rounded-lg font-bold">
+                    {state.customTags.length} / 20個
+                  </span>
+                </div>
+
+                <p className="text-xs text-slate-500 bg-slate-50 p-3 rounded-xl border border-slate-100 leading-relaxed">
+                  💡 食費・日用品などのデフォルト項目に加えて、オリジナルのカテゴリを最大20個まで追加できます。追加したカテゴリは手動入力・カテゴリ変更・自動分類ルールでも使えます。
+                </p>
+
+                {/* 新規追加フォーム */}
+                <div className="flex gap-3 bg-slate-50 p-3 rounded-xl">
+                  <input
+                    type="text"
+                    value={state.newCustomTag}
+                    onChange={e => actions.setNewCustomTag(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') actions.addCustomTag(); }}
+                    placeholder="新しいカテゴリ名（例：サプリ、書籍、ペット）"
+                    maxLength={20}
+                    className="border p-2.5 rounded-xl flex-1 text-sm focus:outline-none focus:border-blue-400"
+                  />
+                  <button
+                    onClick={actions.addCustomTag}
+                    disabled={state.customTags.length >= 20}
+                    className="bg-blue-600 hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 text-white px-5 py-2.5 rounded-xl font-bold text-sm transition-colors shrink-0"
+                  >
+                    追加
+                  </button>
+                </div>
+
+                {/* デフォルトカテゴリ一覧 */}
+                <div>
+                  <p className="text-xs font-bold text-slate-500 mb-2">デフォルトカテゴリ（削除不可）</p>
+                  <div className="flex flex-wrap gap-2">
+                    {['食費','日用品','交通費','旅行費','株','美容・衣服','交際費','趣味・娯楽','不明','その他'].map(cat => (
+                      <span key={cat} className="px-3 py-1.5 bg-slate-100 text-slate-500 rounded-lg text-xs font-bold">
+                        {cat}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                {/* カスタムカテゴリ一覧 */}
+                <div>
+                  <p className="text-xs font-bold text-slate-500 mb-2">
+                    追加したカテゴリ
+                    {state.customTags.length === 0 && (
+                      <span className="font-normal text-slate-300 ml-2">まだ追加されていません</span>
+                    )}
+                  </p>
+                  {state.customTags.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {state.customTags.map(tag => (
+                        <div key={tag} className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 border border-blue-100 rounded-lg group hover:bg-blue-100 transition-colors">
+                          <span className="text-xs font-bold text-blue-700">{tag}</span>
+                          <button
+                            onClick={() => actions.removeCustomTag(tag)}
+                            className="text-blue-300 hover:text-red-500 font-bold text-xs transition-colors leading-none"
+                            title="削除"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* 上限警告 */}
+                {state.customTags.length >= 20 && (
+                  <p className="text-xs text-amber-500 font-bold bg-amber-50 p-3 rounded-xl border border-amber-100">
+                    ⚠️ カテゴリは最大20個までです。追加するには既存のカテゴリを削除してください。
+                  </p>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}

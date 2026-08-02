@@ -96,8 +96,7 @@ export function useDashboard() {
   const [isMounted,          setIsMounted]          = useState(false);
   const [activeTab,          setActiveTab]          = useState<'dashboard'|'analytics'|'settings'>('dashboard');
   const [graphType,          setGraphType]          = useState<'week'|'monthly'>('week');
-  const [openSettingSection, setOpenSettingSection] = useState<'mining'|'target'|'fixed'|'rakuten'|'income'|'travel'|'rules'|null>(null);
-  const [showPromptModal,    setShowPromptModal]    = useState(false);
+  const [openSettingSection, setOpenSettingSection] = useState<'mining'|'target'|'fixed'|'rakuten'|'income'|'travel'|'rules'|'customtags'|null>(null);  const [showPromptModal,    setShowPromptModal]    = useState(false);
   const [storageUsageKB,     setStorageUsageKB]     = useState(0);
   // 週ナビ: 0=今週, -1=先週, 1=来週
   const [weekOffset, setWeekOffset] = useState(0);
