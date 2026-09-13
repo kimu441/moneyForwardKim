@@ -94,7 +94,7 @@ export function useDashboard() {
 
   // ---- UI State ----
   const [isMounted,          setIsMounted]          = useState(false);
-  const [activeTab,          setActiveTab]          = useState<'dashboard'|'analytics'|'settings'>('dashboard');
+  const [activeTab,          setActiveTab]          = useState<'dashboard'|'analytics'|'calendar'|'settings'>('dashboard');
   const [graphType,          setGraphType]          = useState<'week'|'monthly'>('week');
   const [openSettingSection, setOpenSettingSection] = useState<'mining'|'target'|'fixed'|'rakuten'|'income'|'travel'|'rules'|'customtags'|null>(null);  const [showPromptModal,    setShowPromptModal]    = useState(false);
   const [storageUsageKB,     setStorageUsageKB]     = useState(0);

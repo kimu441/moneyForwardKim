@@ -43,6 +43,8 @@ export default function Dashboard() {
   const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
   const [selectedMonthlyCat, setSelectedMonthlyCat] = useState<string | null>(null); // ★追加
   const [editingNameId, setEditingNameId] = useState<string | null>(null); // ★追加
+  const [calendarYear,  setCalendarYear]  = useState(() => new Date().getFullYear());
+  const [calendarMonth, setCalendarMonth] = useState(() => new Date().getMonth()); // 0始まり
 
 
 const isOver = state.weekOffset === 0 && state.currentWeekBalance < 0;
@@ -89,12 +91,12 @@ const isDanger = isOver || (state.weekOffset === 0 && dailyLimit < 1000);
           </p>
         </div>
         <div className="flex bg-slate-100 p-1 rounded-xl">
-          {(['dashboard','analytics','settings'] as const).map(tab => (
-            <button key={tab} onClick={() => actions.setActiveTab(tab)}
-              className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${state.activeTab === tab ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>
-              {tab === 'dashboard' ? '📊 ホーム' : tab === 'analytics' ? '📈 分析' : '⚙️ 設定'}
-            </button>
-          ))}
+          {(['dashboard','analytics','calendar','settings'] as const).map(tab => (
+  <button key={tab} onClick={() => actions.setActiveTab(tab)}
+    className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${state.activeTab === tab ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>
+    {tab === 'dashboard' ? '📊 ホーム' : tab === 'analytics' ? '📈 分析' : tab === 'calendar' ? '📅 カレンダー' : '⚙️ 設定'}
+  </button>
+))}
         </div>
       </div>
 
@@ -809,6 +811,243 @@ const isDanger = isOver || (state.weekOffset === 0 && dailyLimit < 1000);
           </div>
         </div>
       )}
+      {/* ===== タブ3: カレンダー ===== */}
+      {state.activeTab === 'calendar' && (() => {
+        // ---- カレンダー用のデータ計算 ----
+        const year  = calendarYear;
+        const month = calendarMonth; // 0始まり
+
+        // 月のキー例: "2026/06"
+        const monthKey = `${year}/${String(month + 1).padStart(2, '0')}`;
+
+        // 今月の変動費明細（楽天固定費・旅行費除く）
+        const monthHistory = state.history.filter(h => {
+          if (h.id.startsWith('rakuten-monthly-')) return false;
+          if (h.category === '旅行費') return false;
+          return h.date.startsWith(monthKey);
+        });
+
+        // 日付ごとの支出合計 Map { "2026/06/03" -> 合計額 }
+        const dailyTotals: Record<string, number> = {};
+        monthHistory.forEach(h => {
+          dailyTotals[h.date] = (dailyTotals[h.date] || 0) + h.amount;
+        });
+
+        // カレンダーのグリッドを生成
+        const firstDay = new Date(year, month, 1).getDay(); // 0=日
+        const daysInMonth = new Date(year, month + 1, 0).getDate();
+        // 月曜始まりにするため日曜を6として扱う
+        const startOffset = firstDay === 0 ? 6 : firstDay - 1;
+
+        // 今日の日付
+        const today = new Date();
+        const isCurrentMonth = today.getFullYear() === year && today.getMonth() === month;
+
+        // 月の支出合計
+        const monthTotal = Object.values(dailyTotals).reduce((s, v) => s + v, 0);
+
+        // 前月・次月の移動
+        const goPrev = () => {
+          if (month === 0) { setCalendarYear(y => y - 1); setCalendarMonth(11); }
+          else setCalendarMonth(m => m - 1);
+        };
+        const goNext = () => {
+          if (month === 11) { setCalendarYear(y => y + 1); setCalendarMonth(0); }
+          else setCalendarMonth(m => m + 1);
+        };
+        const goToday = () => {
+          setCalendarYear(new Date().getFullYear());
+          setCalendarMonth(new Date().getMonth());
+        };
+
+        // その日の支出で最大値（色の濃さに使用）
+        const maxDaily = Math.max(...Object.values(dailyTotals), 1);
+
+        // 金額表示フォーマット
+        const fmtAmount = (v: number) => {
+          if (v === 0) return '';
+          if (v >= 10000) return `¥${(v / 10000).toFixed(1)}万`;
+          return `¥${v.toLocaleString()}`;
+        };
+
+        return (
+          <div className="space-y-4">
+
+            {/* ヘッダー */}
+            <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex justify-between items-center">
+              <div className="flex items-center gap-3">
+                <button onClick={goPrev}
+                  className="text-slate-400 hover:text-blue-600 font-black px-3 py-1.5 rounded-xl hover:bg-blue-50 transition-colors">
+                  ←
+                </button>
+                <div>
+                  <h2 className="text-lg font-black text-slate-800">
+                    {year}年{month + 1}月
+                  </h2>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    今月の支出合計:
+                    <span className="font-black text-slate-700 ml-1">¥{monthTotal.toLocaleString()}</span>
+                    <span className="ml-2 text-slate-300">（変動費のみ・旅行費除く）</span>
+                  </p>
+                </div>
+                <button onClick={goNext}
+                  className="text-slate-400 hover:text-blue-600 font-black px-3 py-1.5 rounded-xl hover:bg-blue-50 transition-colors">
+                  →
+                </button>
+              </div>
+              <button onClick={goToday}
+                className="text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-xl transition-colors">
+                今月に戻る
+              </button>
+            </div>
+
+            {/* カレンダー本体 */}
+            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+              {/* 曜日ヘッダー */}
+              <div className="grid grid-cols-7 border-b border-slate-100">
+                {['月','火','水','木','金','土','日'].map((d, i) => (
+                  <div key={d} className={`py-2 text-center text-xs font-black ${
+                    i === 5 ? 'text-blue-400' : i === 6 ? 'text-red-400' : 'text-slate-400'
+                  }`}>
+                    {d}
+                  </div>
+                ))}
+              </div>
+
+              {/* 日付グリッド */}
+              <div className="grid grid-cols-7">
+                {/* 空白セル（月初の曜日オフセット）*/}
+                {Array.from({ length: startOffset }).map((_, i) => (
+                  <div key={`empty-${i}`} className="min-h-[80px] border-b border-r border-slate-50 bg-slate-50/50" />
+                ))}
+
+                {/* 日付セル */}
+                {Array.from({ length: daysInMonth }).map((_, i) => {
+                  const day = i + 1;
+                  const dateKey = `${year}/${String(month + 1).padStart(2, '0')}/${String(day).padStart(2, '0')}`;
+                  const amount = dailyTotals[dateKey] || 0;
+                  const isToday = isCurrentMonth && today.getDate() === day;
+                  const dayOfWeek = (startOffset + i) % 7; // 0=月〜6=日
+                  const isSat = dayOfWeek === 5;
+                  const isSun = dayOfWeek === 6;
+                  // 支出の多さに応じた背景色の濃さ（0〜1）
+                  const intensity = amount > 0 ? Math.min(0.9, amount / maxDaily) : 0;
+
+                  return (
+                    <div key={day}
+                      className={`min-h-[80px] border-b border-r border-slate-100 p-1.5 flex flex-col transition-colors ${
+                        isToday ? 'bg-blue-50 border-blue-200' :
+                        isSun ? 'bg-red-50/30' :
+                        isSat ? 'bg-blue-50/20' :
+                        'bg-white hover:bg-slate-50'
+                      }`}
+                    >
+                      {/* 日付番号 */}
+                      <div className={`text-xs font-black w-6 h-6 flex items-center justify-center rounded-full mb-1 ${
+                        isToday ? 'bg-blue-600 text-white' :
+                        isSun ? 'text-red-400' :
+                        isSat ? 'text-blue-400' :
+                        'text-slate-500'
+                      }`}>
+                        {day}
+                      </div>
+
+                      {/* 支出金額 */}
+                      {amount > 0 && (
+                        <div className="mt-auto">
+                          {/* 金額バー */}
+                          <div
+                            className="w-full rounded-sm mb-0.5"
+                            style={{
+                              height: `${Math.max(2, intensity * 8)}px`,
+                              backgroundColor: `rgba(239, 68, 68, ${0.2 + intensity * 0.6})`,
+                            }}
+                          />
+                          {/* 金額テキスト */}
+                          <p className={`text-[10px] font-black leading-tight ${
+                            amount >= maxDaily * 0.7 ? 'text-red-500' :
+                            amount >= maxDaily * 0.4 ? 'text-amber-500' :
+                            'text-slate-500'
+                          }`}>
+                            {fmtAmount(amount)}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {/* 末尾の空白セル（グリッドを7の倍数に揃える）*/}
+                {(() => {
+                  const totalCells = startOffset + daysInMonth;
+                  const remainder = totalCells % 7;
+                  if (remainder === 0) return null;
+                  return Array.from({ length: 7 - remainder }).map((_, i) => (
+                    <div key={`end-${i}`} className="min-h-[80px] border-b border-r border-slate-50 bg-slate-50/50" />
+                  ));
+                })()}
+              </div>
+            </div>
+
+            {/* 凡例 + 支出ランキング */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+              {/* 凡例 */}
+              <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+                <p className="text-xs font-black text-slate-600 mb-3">📌 カラー凡例</p>
+                <div className="space-y-2 text-xs">
+                  <div className="flex items-center gap-2">
+                    <div className="w-4 h-3 rounded-sm bg-red-500" />
+                    <span className="text-slate-600">支出多め（上位30%）</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-4 h-3 rounded-sm bg-amber-400" />
+                    <span className="text-slate-600">支出中程度（上位40%〜70%）</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-4 h-3 rounded-sm bg-slate-300" />
+                    <span className="text-slate-600">支出少なめ（下位40%）</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-4 h-3 rounded-sm bg-slate-100 border border-slate-200" />
+                    <span className="text-slate-400">支出なし</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* 支出TOP5 */}
+              <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+                <p className="text-xs font-black text-slate-600 mb-3">🏆 今月の支出が多い日 TOP5</p>
+                {Object.entries(dailyTotals).length === 0 ? (
+                  <p className="text-xs text-slate-400 text-center py-4">データがありません</p>
+                ) : (
+                  <div className="space-y-2">
+                    {Object.entries(dailyTotals)
+                      .sort((a, b) => b[1] - a[1])
+                      .slice(0, 5)
+                      .map(([date, amt], i) => (
+                        <div key={date} className="flex items-center justify-between text-xs">
+                          <div className="flex items-center gap-2">
+                            <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black text-white ${
+                              i === 0 ? 'bg-red-500' : i === 1 ? 'bg-amber-500' : i === 2 ? 'bg-yellow-400' : 'bg-slate-300'
+                            }`}>
+                              {i + 1}
+                            </span>
+                            <span className="font-bold text-slate-600">{date.slice(5)}（
+                              {['月','火','水','木','金','土','日'][(new Date(date.replace(/\//g, '-')).getDay() + 6) % 7]}
+                            ）</span>
+                          </div>
+                          <span className="font-extrabold text-slate-800">¥{amt.toLocaleString()}</span>
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
+
+            </div>
+          </div>
+        );
+      })()}
       {/* ===== タブ3: 設定（Mac向け2カラムレイアウト）===== */}
       {state.activeTab === 'settings' && (
         <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
