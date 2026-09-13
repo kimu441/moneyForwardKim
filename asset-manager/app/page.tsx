@@ -42,6 +42,7 @@ export default function Dashboard() {
   // カテゴリ編集中のID管理z
   const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
   const [selectedMonthlyCat, setSelectedMonthlyCat] = useState<string | null>(null); // ★追加
+  const [editingNameId, setEditingNameId] = useState<string | null>(null); // ★追加
 
 
 const isOver = state.weekOffset === 0 && state.currentWeekBalance < 0;
@@ -80,7 +81,7 @@ const isDanger = isOver || (state.weekOffset === 0 && dailyLimit < 1000);
         <div>
           <h1 className="text-xl font-extrabold text-slate-900 flex items-center gap-2">
             🛡️ 資産形成プロ
-            <span className="text-xs bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded-md font-bold">v6.4</span>
+            <span className="text-xs bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded-md font-bold">v6.5</span>
           </h1>
           <p className="text-xs text-slate-400 mt-0.5">
             {state.currentCycle.label} ／ 給料日: {state.salaryDay}日
@@ -367,27 +368,38 @@ const isDanger = isOver || (state.weekOffset === 0 && dailyLimit < 1000);
               </div>
 
               {/* 変動費手動入力（現金） */}
-              <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm space-y-3">
-                <h3 className="text-sm font-black text-slate-700">
-                  💴 変動費 手動入力
-                  <span className="ml-1.5 text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-bold">現金</span>
-                </h3>
-                <input type="number" value={state.amount} onChange={e => actions.setAmount(e.target.value)}
-                  className="border p-2.5 rounded-xl w-full text-sm font-bold focus:border-blue-500 focus:outline-none"
-                  placeholder="金額 ¥" />
-                <div className="grid grid-cols-3 gap-1 max-h-20 overflow-y-auto border p-1 rounded-lg bg-slate-50">
-                  {state.CATEGORIES.filter(c => c !== '旅行費').map(cat => (
-                    <button key={cat} onClick={() => actions.setCategory(cat)}
-                      className={`py-1 rounded-md text-[10px] font-bold border transition-all ${state.category === cat ? 'bg-blue-50 text-blue-600 border-blue-400' : 'bg-white text-slate-500 border-transparent hover:bg-slate-100'}`}>
-                      {cat}
-                    </button>
-                  ))}
-                </div>
-                <button onClick={actions.handleSpend} className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-xl font-black text-xs transition-colors">
-                  記録する（今週残金から引く）
-                </button>
-              </div>
-
+<div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm space-y-3">
+  <h3 className="text-sm font-black text-slate-700">
+    💴 変動費 手動入力
+    <span className="ml-1.5 text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-bold">現金</span>
+  </h3>
+  {/* ★ 支出名入力欄（任意） */}
+  <input
+    type="text"
+    value={state.spendName}
+    onChange={e => actions.setSpendName(e.target.value)}
+    className="border p-2.5 rounded-xl w-full text-sm focus:border-blue-500 focus:outline-none"
+    placeholder="支出名（未入力の場合は「現金」と表示）"
+  />
+  <input
+    type="number"
+    value={state.amount}
+    onChange={e => actions.setAmount(e.target.value)}
+    className="border p-2.5 rounded-xl w-full text-sm font-bold focus:border-blue-500 focus:outline-none"
+    placeholder="金額 ¥"
+  />
+  <div className="grid grid-cols-3 gap-1 max-h-20 overflow-y-auto border p-1 rounded-lg bg-slate-50">
+    {state.CATEGORIES.filter(c => c !== '旅行費').map(cat => (
+      <button key={cat} onClick={() => actions.setCategory(cat)}
+        className={`py-1 rounded-md text-[10px] font-bold border transition-all ${state.category === cat ? 'bg-blue-50 text-blue-600 border-blue-400' : 'bg-white text-slate-500 border-transparent hover:bg-slate-100'}`}>
+        {cat}
+      </button>
+    ))}
+  </div>
+  <button onClick={actions.handleSpend} className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-xl font-black text-xs transition-colors">
+    記録する（今週残金から引く）
+  </button>
+</div>
               {/* 旅行費入力 */}
               <div className="bg-sky-50 p-4 rounded-2xl border border-sky-100 shadow-sm space-y-3">
                 <h3 className="text-sm font-black text-sky-700">
@@ -440,9 +452,33 @@ const isDanger = isOver || (state.weekOffset === 0 && dailyLimit < 1000);
                   <div key={h.id} className="flex justify-between items-center text-xs py-2.5 border-b border-slate-100 hover:bg-slate-50 px-1 rounded-lg group">
                     <div className="flex items-center gap-2 truncate min-w-0">
                       <span className="text-[10px] text-slate-400 font-mono shrink-0 w-20">{h.date}</span>
-                      <span className={`font-bold truncate max-w-[130px] ${h.id.startsWith('manual-cash-') ? 'text-blue-600' : 'text-slate-800'}`}>
-                        {h.name}
-                      </span>
+                      {editingNameId === h.id ? (
+  <input
+    autoFocus
+    type="text"
+    defaultValue={h.name}
+    onBlur={e => {
+      actions.updateHistoryName(h.id, e.target.value || h.name);
+      setEditingNameId(null);
+    }}
+    onKeyDown={e => {
+      if (e.key === 'Enter') {
+        actions.updateHistoryName(h.id, e.currentTarget.value || h.name);
+        setEditingNameId(null);
+      }
+      if (e.key === 'Escape') setEditingNameId(null);
+    }}
+    className="text-xs font-bold border border-blue-400 rounded px-1.5 py-0.5 focus:outline-none text-slate-800 max-w-[130px]"
+  />
+) : (
+  <button
+    onClick={() => setEditingNameId(h.id)}
+    title="クリックして支出名を編集"
+    className={`font-bold truncate max-w-[130px] text-left hover:underline hover:text-blue-600 transition-colors cursor-pointer ${h.id.startsWith('manual-cash-') ? 'text-blue-600' : 'text-slate-800'}`}
+  >
+    {h.name}
+  </button>
+)}
                       {/* ★ カテゴリ インライン編集 */}
                       {editingCategoryId === h.id ? (
                         <select

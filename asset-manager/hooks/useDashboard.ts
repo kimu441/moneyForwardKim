@@ -130,6 +130,7 @@ export function useDashboard() {
   const [categoryRules, setCategoryRules] = useState<CategoryRule[]>(DEFAULT_CATEGORY_RULES);
   const [newRuleKeyword, setNewRuleKeyword] = useState('');
   const [newRuleCategory, setNewRuleCategory] = useState<Category>('食費');
+  const [spendName, setSpendName] = useState(''); // ★追加
 
   // ---- 初期化 ----
   useEffect(() => {
@@ -210,6 +211,16 @@ export function useDashboard() {
     saveLastTravelReset(thisMonthKey);
     console.log('✈️ 旅行費を月次リセットしました');
   };
+
+// 変動費の支出名をインラインで変更
+const updateHistoryName = (id: string, newName: string) => {
+  if (!newName.trim()) return;
+  const newHistory = history.map(h =>
+    h.id === id ? { ...h, name: newName.trim() } : h
+  );
+  setHistory(newHistory);
+  persistHistory(newHistory);
+};
 
   // ---- 週ナビ計算 ----
   const viewingWeek = useMemo(() => {
@@ -330,22 +341,23 @@ export function useDashboard() {
   // ---- アクション ----
 
   // 変動費 手動入力（現金タグ付き）
-  const handleSpend = () => {
-    const parsed = parseInt(amount, 10);
-    if (isNaN(parsed) || parsed <= 0) return;
-    const now = new Date();
-    const newLog: HistoryItem = {
-      id: `manual-cash-${Date.now()}`,
-      date: formatDate(now),
-      name: `💴 現金支出`,
-      amount: parsed,
-      category,
-    };
-    const newHistory = [newLog, ...history];
-    setHistory(newHistory);
-    setAmount('');
-    persistHistory(newHistory);
+ const handleSpend = () => {
+  const parsed = parseInt(amount, 10);
+  if (isNaN(parsed) || parsed <= 0) return;
+  const now = new Date();
+  const newLog: HistoryItem = {
+    id: `manual-cash-${Date.now()}`,
+    date: formatDate(now),
+    name: spendName.trim() ? spendName.trim() : '💴 現金', // ★未入力なら「現金」
+    amount: parsed,
+    category,
   };
+  const newHistory = [newLog, ...history];
+  setHistory(newHistory);
+  setAmount('');
+  setSpendName(''); // ★入力欄をリセット
+  persistHistory(newHistory);
+};
 
   // 旅行費 手動入力（変動費・週予算と完全別管理）
   const handleTravelSpend = () => {
@@ -674,6 +686,7 @@ ${sortedVariableHistory.slice(0, 20).map(h => `- ${h.date} | ${h.name} | ¥${h.a
       categoryRules, newRuleKeyword, newRuleCategory,
        customTags, newCustomTag,
   monthlyBreakdown, topCategories, monthlyNavOffset,
+  spendName, 
     },
     actions: {
       setActiveTab, setGraphType, setOpenSettingSection, setShowPromptModal,
@@ -696,7 +709,8 @@ ${sortedVariableHistory.slice(0, 20).map(h => `- ${h.date} | ${h.name} | ¥${h.a
   applyRulesToAllHistory, resetCategoryRules,
    setNewCustomTag,
   addCustomTag, removeCustomTag,
-  setMonthlyNavOffset,
+  setMonthlyNavOffset,setSpendName, 
+  updateHistoryName,
     },
   };
 }
