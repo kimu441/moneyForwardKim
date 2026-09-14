@@ -45,6 +45,7 @@ export default function Dashboard() {
   const [editingNameId, setEditingNameId] = useState<string | null>(null); // ★追加
   const [calendarYear,  setCalendarYear]  = useState(() => new Date().getFullYear());
   const [calendarMonth, setCalendarMonth] = useState(() => new Date().getMonth()); // 0始まり
+  const [selectedCalendarDate, setSelectedCalendarDate] = useState<string | null>(null); 
 
 
 const isOver = state.weekOffset === 0 && state.currentWeekBalance < 0;
@@ -935,13 +936,16 @@ const isDanger = isOver || (state.weekOffset === 0 && dailyLimit < 1000);
 
                   return (
                     <div key={day}
-                      className={`min-h-[80px] border-b border-r border-slate-100 p-1.5 flex flex-col transition-colors ${
-                        isToday ? 'bg-blue-50 border-blue-200' :
-                        isSun ? 'bg-red-50/30' :
-                        isSat ? 'bg-blue-50/20' :
-                        'bg-white hover:bg-slate-50'
-                      }`}
-                    >
+  onClick={() => amount > 0 ? setSelectedCalendarDate(dateKey) : null}
+  className={`min-h-[80px] border-b border-r border-slate-100 p-1.5 flex flex-col transition-colors ${
+    amount > 0 ? 'cursor-pointer' : 'cursor-default'
+  } ${
+    isToday ? 'bg-blue-50 border-blue-200' :
+    isSun ? 'bg-red-50/30' :
+    isSat ? 'bg-blue-50/20' :
+    'bg-white hover:bg-slate-50'
+  }`}
+>
                       {/* 日付番号 */}
                       <div className={`text-xs font-black w-6 h-6 flex items-center justify-center rounded-full mb-1 ${
                         isToday ? 'bg-blue-600 text-white' :
@@ -987,6 +991,143 @@ const isDanger = isOver || (state.weekOffset === 0 && dailyLimit < 1000);
                   ));
                 })()}
               </div>
+                          {/* ★ 日付詳細モーダル */}
+            {selectedCalendarDate && (() => {
+              const dateHistory = state.history.filter(h => {
+                if (h.id.startsWith('rakuten-monthly-')) return false;
+                if (h.category === '旅行費') return false;
+                return h.date === selectedCalendarDate;
+              });
+              const dayTotal = dateHistory.reduce((s, h) => s + h.amount, 0);
+
+              // 日付を読みやすい形式に変換
+              const d = new Date(selectedCalendarDate.replace(/\//g, '-'));
+              const dayLabel = `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日（${'日月火水木金土'[d.getDay()]}）`;
+
+              // カテゴリ別集計
+              const byCategory: Record<string, number> = {};
+              dateHistory.forEach(h => {
+                byCategory[h.category] = (byCategory[h.category] || 0) + h.amount;
+              });
+
+              return (
+                <div className="fixed inset-0 bg-black/50 z-50 flex items-end md:items-center justify-center p-4 backdrop-blur-sm"
+                  onClick={e => { if (e.target === e.currentTarget) setSelectedCalendarDate(null); }}
+                >
+                  <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl flex flex-col max-h-[85vh] overflow-hidden">
+
+                    {/* モーダルヘッダー */}
+                    <div className="flex justify-between items-start p-5 border-b border-slate-100">
+                      <div>
+                        <p className="text-xs font-bold text-slate-400">支出内訳</p>
+                        <h3 className="text-lg font-black text-slate-800 mt-0.5">{dayLabel}</h3>
+                        <p className="text-xs text-slate-400 mt-1">
+                          {dateHistory.length}件の支出 ／ 変動費のみ・旅行費除く
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => setSelectedCalendarDate(null)}
+                        className="text-slate-400 hover:text-slate-600 font-bold text-lg p-1 transition-colors"
+                      >
+                        ✕
+                      </button>
+                    </div>
+
+                    {/* 合計金額バナー */}
+                    <div className="bg-slate-50 px-5 py-3 border-b border-slate-100">
+                      <div className="flex justify-between items-center">
+                        <span className="text-xs font-bold text-slate-500">この日の支出合計</span>
+                        <span className="text-2xl font-black text-slate-800">¥{dayTotal.toLocaleString()}</span>
+                      </div>
+                      {/* カテゴリ別内訳バー */}
+                      {Object.keys(byCategory).length > 0 && (
+                        <div className="mt-2 flex gap-1 h-1.5 rounded-full overflow-hidden">
+                          {Object.entries(byCategory)
+                            .sort((a, b) => b[1] - a[1])
+                            .map(([cat, amt], i) => (
+                              <div
+                                key={cat}
+                                title={`${cat}: ¥${amt.toLocaleString()}`}
+                                style={{
+                                  width: `${(amt / dayTotal) * 100}%`,
+                                  backgroundColor: COLORS[i % COLORS.length],
+                                }}
+                              />
+                            ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* カテゴリ別サマリー */}
+                    {Object.keys(byCategory).length > 1 && (
+                      <div className="px-5 py-3 border-b border-slate-100 bg-slate-50/50">
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2">カテゴリ別</p>
+                        <div className="flex flex-wrap gap-2">
+                          {Object.entries(byCategory)
+                            .sort((a, b) => b[1] - a[1])
+                            .map(([cat, amt], i) => (
+                              <div key={cat} className="flex items-center gap-1.5 bg-white px-2.5 py-1.5 rounded-lg border border-slate-100 text-xs">
+                                <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
+                                <span className="font-bold text-slate-600">{cat}</span>
+                                <span className="font-extrabold text-slate-800">¥{amt.toLocaleString()}</span>
+                                <span className="text-slate-300">{Math.round((amt / dayTotal) * 100)}%</span>
+                              </div>
+                            ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 明細リスト */}
+                    <div className="flex-1 overflow-y-auto">
+                      {dateHistory.length === 0 ? (
+                        <p className="text-xs text-slate-400 text-center py-10">この日の支出はありません</p>
+                      ) : (
+                        <div className="divide-y divide-slate-50">
+                          {dateHistory
+                            .sort((a, b) => b.amount - a.amount)
+                            .map((h, i) => (
+                              <div key={h.id} className="flex items-center justify-between px-5 py-3.5 hover:bg-slate-50 transition-colors">
+                                <div className="flex items-center gap-3 min-w-0">
+                                  {/* カテゴリカラードット */}
+                                  <span
+                                    className="w-2.5 h-2.5 rounded-full shrink-0"
+                                    style={{ backgroundColor: COLORS[Object.keys(byCategory).indexOf(h.category) % COLORS.length] }}
+                                  />
+                                  <div className="min-w-0">
+                                    <p className={`text-sm font-bold truncate ${h.id.startsWith('manual-cash-') ? 'text-blue-600' : 'text-slate-800'}`}>
+                                      {h.name}
+                                    </p>
+                                    <p className="text-[10px] text-slate-400 mt-0.5">{h.category}</p>
+                                  </div>
+                                </div>
+                                <div className="text-right shrink-0 ml-3">
+                                  <p className="text-sm font-extrabold text-slate-800">¥{h.amount.toLocaleString()}</p>
+                                  <p className="text-[10px] text-slate-400">{Math.round((h.amount / dayTotal) * 100)}%</p>
+                                </div>
+                              </div>
+                            ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* フッター */}
+                    <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-between items-center">
+                      <div className="text-xs text-slate-400">
+                        合計 <span className="font-black text-slate-700">¥{dayTotal.toLocaleString()}</span>
+                        ＝ {dateHistory.map(h => `¥${h.amount.toLocaleString()}`).join(' + ')}
+                      </div>
+                      <button
+                        onClick={() => setSelectedCalendarDate(null)}
+                        className="bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-sm px-4 py-2 rounded-xl transition-colors"
+                      >
+                        閉じる
+                      </button>
+                    </div>
+
+                  </div>
+                </div>
+              );
+            })()}
             </div>
 
             {/* 凡例 + 支出ランキング */}
