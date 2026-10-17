@@ -77,8 +77,7 @@ const isDanger = isOver || (state.weekOffset === 0 && dailyLimit < 1000);
   }, [state.history, state.CATEGORIES, state.currentCycle.start]);
 
   return (
-    <div className="p-4 md:p-6 max-w-6xl mx-auto space-y-5 bg-slate-50 min-h-screen text-slate-800 font-sans antialiased">
-
+<div className="p-4 md:p-6 w-full max-w-6xl mx-auto space-y-5 bg-slate-50 min-h-screen text-slate-800 font-sans antialiased">
       {/* ヘッダー */}
       <div className="flex justify-between items-center bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
         <div>
@@ -522,7 +521,7 @@ const isDanger = isOver || (state.weekOffset === 0 && dailyLimit < 1000);
 
       {/* ===== タブ2: 詳細分析（Mac向け2カラムレイアウト）===== */}
       {state.activeTab === 'analytics' && (
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
+        <div className="w-full grid grid-cols-1 md:grid-cols-4 gap-5">
 
           {/* 左サイドパネル: KPIカード群 */}
           <div className="md:col-span-1 space-y-4">
@@ -872,7 +871,7 @@ const isDanger = isOver || (state.weekOffset === 0 && dailyLimit < 1000);
         };
 
         return (
-          <div className="space-y-4">
+          <div className="w-full space-y-4">
 
             {/* ヘッダー */}
             <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex justify-between items-center">
@@ -1191,7 +1190,7 @@ const isDanger = isOver || (state.weekOffset === 0 && dailyLimit < 1000);
       })()}
       {/* ===== タブ3: 設定（Mac向け2カラムレイアウト）===== */}
       {state.activeTab === 'settings' && (
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
+        <div className="w-full grid grid-cols-1 md:grid-cols-4 gap-5">
 
           {/* 左ナビ */}
           <div className="md:col-span-1 space-y-2">
