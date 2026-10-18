@@ -92,7 +92,7 @@ export default function Dashboard() {
           <div>
             <h1 className="text-base md:text-xl font-extrabold text-slate-900 flex items-center gap-1.5">
               🛡️ 資産形成プロ
-              <span className="text-[10px] md:text-xs bg-emerald-50 text-emerald-600 px-1.5 py-0.5 rounded-md font-bold">v6.7</span>
+              <span className="text-[10px] md:text-xs bg-emerald-50 text-emerald-600 px-1.5 py-0.5 rounded-md font-bold">v6.9</span>
             </h1>
             <p className="text-[10px] md:text-xs text-slate-400 mt-0.5 hidden sm:block">
               {state.currentCycle.label} ／ 給料日: {state.salaryDay}日
